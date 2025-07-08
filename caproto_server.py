@@ -445,7 +445,7 @@ class DetectorIOC(PVGroup):
 
 if __name__ == '__main__':
     ioc_options, run_options = ioc_arg_parser(
-        default_prefix='XF21ID1-ES{{A1Soft}}:',
+        default_prefix='A1Soft:',
         desc=dedent(DetectorIOC.__doc__))
     
     ioc = DetectorIOC(**ioc_options)
