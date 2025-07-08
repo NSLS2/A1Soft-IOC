@@ -356,6 +356,7 @@ class DetectorIOC(PVGroup):
     @acquire.putter
     async def acquire(self, instance: Any, value: int) -> int:
         """Start acquisition when PV is written to."""
+        # TODO: Handle if state is not idle
         if value > 0:
             response: Optional[Dict[str, Any]] = await self.tcp_client.send_command("ACTION", action="START")
             if response:
