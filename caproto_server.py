@@ -391,9 +391,11 @@ class DetectorIOC(PVGroup):
             write_tasks = []
             for item in values:
                 if item["name"] in self._param_names_to_pvs:
-                    write_tasks.append(
-                        self._param_names_to_pvs[item["name"]].write(item["value"])
-                    )
+                    pv = self._param_names_to_pvs[item["name"]]
+                    new_value = item["value"]
+                    # Only update if the value is different
+                    if pv.value != new_value:
+                        write_tasks.append(pv.write(new_value))
             await async_lib.library.gather(*write_tasks)
         except Exception as e:
             print(f"Error updating PVs: {e}")
