@@ -13,3 +13,12 @@ matplotlib = "*"
 
 [pypi-dependencies]
 caproto = { version = ">=0.4.2rc1,!=1.2.0", extras = ["standard"] }
+
+[environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+
+[feature.dev.dependencies]
+pre-commit = "*"
+ruff = "*"
+pyright = "*"
