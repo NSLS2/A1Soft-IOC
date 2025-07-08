@@ -252,10 +252,10 @@ class DetectorIOC(PVGroup):
         dtype=ChannelType.ENUM,
         enum_strings=("Fixed", "Swept", "Dither"),
     )
-    date_number = pvproperty(put=_param_write, name="DATE_NUMBER", dtype=bool)
-    loc_det = pvproperty(put=_param_write, name="LOC_DET", dtype=bool)
-    xtab = pvproperty(put=_param_write, name="XTAB", dtype=bool)
-    spin = pvproperty(put=_param_write, name="SPIN", dtype=bool)
+    date_number = pvproperty(put=_param_write, name="DATE_NUMBER", enum_strings=("FALSE", "TRUE"), dtype=bool)
+    loc_det = pvproperty(put=_param_write, name="LOC_DET", enum_strings=("FALSE", "TRUE"), dtype=bool)
+    xtab = pvproperty(put=_param_write, name="XTAB", enum_strings=("FALSE", "TRUE"), dtype=bool)
+    spin = pvproperty(put=_param_write, name="SPIN", enum_strings=("FALSE", "TRUE"), dtype=bool)
     reg_name = pvproperty(put=_param_write, name="REG_NAME", dtype=str)
     name_string = pvproperty(put=_param_write, name="NAME_STRING", dtype=str)
     generated_name = pvproperty(put=_param_write, name="GENERATED_NAME", dtype=str)

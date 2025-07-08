@@ -7,14 +7,14 @@ version = "0.1.0"
 [tasks]
 
 [dependencies]
-python = "*"
+python = "<3.13"
 numpy = "*"
 matplotlib = "*"
-ophyd = "*"
 ipython = "*"
 
 [pypi-dependencies]
 caproto = { version = ">=0.4.2rc1,!=1.2.0", extras = ["standard"] }
+ophyd = "*"
 
 [environments]
 default = { solve-group = "default" }
