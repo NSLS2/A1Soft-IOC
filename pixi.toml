@@ -1,0 +1,15 @@
+[workspace]
+channels = ["conda-forge"]
+name = "EpicsServer"
+platforms = ["win-64", "linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "*"
+numpy = "*"
+matplotlib = "*"
+
+[pypi-dependencies]
+caproto = { version = ">=0.4.2rc1,!=1.2.0", extras = ["standard"] }
