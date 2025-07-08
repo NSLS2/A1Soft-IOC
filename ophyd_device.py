@@ -99,7 +99,6 @@ class SpectrumAnalyzer(Device):
     def _stage_changed(self, value=None, old_value=None, **kwargs): 
         if self._status is None:
             return
-        print(f"Stage changed: {value} -> {old_value}")
         if value == "STANDBY" and old_value == "RUNNING":
             self._status.set_finished()
             self._status = None
