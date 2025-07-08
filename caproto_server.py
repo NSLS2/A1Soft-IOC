@@ -349,7 +349,7 @@ class DetectorIOC(PVGroup):
         }
         self._param_names_to_pvs = {v: k for k, v in self._pvs_to_param_names.items()}
 
-    @sync.scan(period=1.0, use_scan_field=True)  # Reduced frequency to 1 second
+    @sync.scan(period=0.1, use_scan_field=True)
     async def sync(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Synchronize parameters with detector."""
         if instance.value == "ON":
