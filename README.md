@@ -34,7 +34,7 @@ Here are a list of the types of commands able to be processed by the TCP server.
 
 | Name | Type | Description | Read-Only? | 
 |------|------|-------------|------------|
-| state | enum | The state of the acquisition. Options are: RUNNING, MOVING, STANDBY, and possibly more | Y |
+| state | enum | The state of the acquisition. Options are: RUNNING, MOVING, STANDBY | Y |
 | endX | int | <unknown> | N |
 | startY | int | <unknown> | N |
 | numSlice | int | <unknown> | N |
