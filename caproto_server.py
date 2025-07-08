@@ -10,7 +10,7 @@ import random
 import socket
 import time
 from textwrap import dedent
-from typing import Any
+from typing import Any, cast
 
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyData
 from caproto import ChannelType
@@ -82,6 +82,8 @@ class DetectorTCPClient:
         if not self.connected:
             return None
 
+        json_socket = cast(socket.socket, self.json_socket)
+
         cmd_id: int = random.randrange(100)
 
         if cmd_type == "ACTION":
@@ -100,7 +102,7 @@ class DetectorTCPClient:
             try:
                 loop = asyncio.get_event_loop()
                 msg: bytes = (cmd + "\r\n").encode()
-                await loop.sock_sendall(self.json_socket, msg)
+                await loop.sock_sendall(json_socket, msg)
 
                 # Read response using asyncio-compatible operations
                 response: str = ""
@@ -110,7 +112,7 @@ class DetectorTCPClient:
                     try:
                         # Use asyncio.wait_for to add timeout capability
                         data: bytes = await asyncio.wait_for(
-                            loop.sock_recv(self.json_socket, 1), timeout=5.0
+                            loop.sock_recv(json_socket, 1), timeout=5.0
                         )
 
                         if data == b"\r":
@@ -154,6 +156,9 @@ class DetectorIOC(PVGroup):
             await self.last_error.write(f"Failed to set {param_name} to {value}")
             return None
         response = await self.tcp_client.get_parameter(param_name)
+        if not response:
+            await self.last_error.write(f"Failed to get new value of {param_name}")
+            return None
         result = next(
             (item for item in response["values"] if item["name"] == param_name), None
         )
