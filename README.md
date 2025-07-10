@@ -212,3 +212,34 @@ When synchronization is active, these parameters will be updated, by default eve
 | $(P)PSU_MODE | Sets and gets `PsuMode` |
 | $(P)OVER_R_ARR | Sets and gets `OverRArr` |
 | $(P)OVER_RANGE | Sets and gets `OverRange` |
+
+## Installation
+
+To install the package:
+
+```bash
+pip install .
+```
+
+Or for editable install:
+
+```bash
+pip install -e .
+```
+
+## Usage
+
+To launch the Caproto server:
+
+```bash
+python -m a1soft.ioc --list-pvs --interfaces=127.0.0.1
+```
+
+To use the Ophyd device in scripts:
+
+```python
+from a1soft.ophyd import SpectrumAnalyzer
+
+# Example usage
+device = SpectrumAnalyzer('PREFIX:', name='sa')
+```

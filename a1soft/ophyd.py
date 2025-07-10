@@ -87,16 +87,18 @@ class SpectrumAnalyzer(Device):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.stage_sigs.update([
-            (self.acquire, 0),
-        ])
+        self.stage_sigs.update(
+            [
+                (self.acquire, 0),
+            ]
+        )
         self._status = None
 
     def stage(self):
         self.state.subscribe(self._stage_changed, run=False)
         return super().stage()
 
-    def _stage_changed(self, value=None, old_value=None, **kwargs): 
+    def _stage_changed(self, value=None, old_value=None, **kwargs):
         if self._status is None:
             return
         if value == "STANDBY" and old_value == "RUNNING":

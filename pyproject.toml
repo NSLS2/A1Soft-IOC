@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "a1soft"
+dynamic = ["version"]
+dependencies = [
+  "caproto >=0.4.2rc1,!=1.2.0",
+  "ophyd",
+]
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Thomas Hopkins", email = "thopkins1@bnl.gov" },
+]
+description = "EPICS IOC and Ophyd device for A1Soft detector system"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[tool.hatch.version]
+path = "a1soft/__init__.py" 
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+name = "EpicsServer"
+platforms = ["win-64", "linux-64"]
+version = "0.1.0"
+
+[tool.pixi.tasks]
+
+[tool.pixi.dependencies]
+python = ">=3.10,<3.13"
+
+[tool.pixi.pypi-dependencies]
+a1soft = { path = ".", editable = true }
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+
+[tool.pixi.feature.dev.dependencies]
+numpy = "*"
+matplotlib = "*"
+ipython = "*"
+pre-commit = "*"
+ruff = "*"
+pyright = "*"
