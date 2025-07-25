@@ -512,6 +512,7 @@ class DetectorIOC(PVGroup):
             self.over_range: "OverRange",
         }
         self._param_names_to_pvs = {v: k for k, v in self._pvs_to_param_names.items()}
+        self._file_handle: Any | None = None
 
     async def _write_image_to_file(self) -> None:
         """Write image to file."""
