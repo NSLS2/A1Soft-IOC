@@ -352,6 +352,9 @@ class DetectorIOC(PVGroup):
     file_path = pvproperty(value="", name="FILE:PATH", dtype=ChannelType.STRING)
     file_status = pvproperty(value="", name="FILE:STATUS", read_only=True, dtype=ChannelType.STRING)
     num_captured = pvproperty(value=0, name="FILE:NUM_CAPTURED", read_only=True, dtype=int)
+    """Total number of images captured during capture session"""
+    num_processed = pvproperty(value=0, name="FILE:NUM_PROCESSED", read_only=True, dtype=int)
+    """Number of images processed during a single acquisition"""
 
     # Status and info
     connection_status = pvproperty(value=0, name="SYS:CONNECTED", read_only=True)
@@ -614,6 +617,7 @@ class DetectorIOC(PVGroup):
                 return False
             self._full_file_path = Path(file_path) / filename
             self._file_handle = open(self._full_file_path, "a")
+            await self.num_captured.write(0)
             
             # Create fresh queue for this capture session
             self._image_queue = asyncio.Queue(maxsize=100)
@@ -659,7 +663,7 @@ class DetectorIOC(PVGroup):
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for acutal number of scans completed."""
         if self.acquisition_status.value == 1 and self.file_capture.value == "On":
-            num_captured = self.num_captured.value
+            num_processed = self.num_processed.value
             
             # Get actScans parameter
             response = await self.tcp_client.get_parameter(self._pvs_to_param_names[self.act_scans])
@@ -667,14 +671,15 @@ class DetectorIOC(PVGroup):
             if response and "values" in response:
                 act_scans_value = response["values"][0]["value"]
                 
-                if act_scans_value > num_captured:
-                    logger.info(f"New scan detected: {act_scans_value} (was {num_captured})")
+                if act_scans_value > num_processed:
+                    logger.info(f"New scan detected: {act_scans_value} (was {num_processed})")
                     
                     await self._write_image_to_file()
                     
                     await async_lib.library.gather(
-                        self.num_captured.write(act_scans_value),
+                        self.num_processed.write(act_scans_value),
                         self.act_scans.write(act_scans_value),
+                        self.num_captured.write(self.num_captured.value + 1),
                     )
             else:
                 logger.error(f"Failed to get actual number of scans, got: {response}")
@@ -756,7 +761,7 @@ class DetectorIOC(PVGroup):
                 # Reset file writing state for new acquisition
                 if self.file_capture.value == "On":
                     self._last_array = None
-                    await self.num_captured.write(0)
+                    await self.num_processed.write(0)
                     logger.info("Reset file writing state for new acquisition")
             else:
                 logger.error("Failed to start acquisition")
