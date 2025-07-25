@@ -302,21 +302,21 @@ class DetectorIOC(PVGroup):
         param_name = self._pvs_to_param_names[instance]
         response = await self.tcp_client.set_parameter(param_name, value)
         if not response:
-            await self.last_error.write(f"Failed to set {param_name} to {value}")
+            print(f"Failed to set {param_name} to {value}")
             return None
         response = await self.tcp_client.get_parameter(param_name)
         if not response:
-            await self.last_error.write(f"Failed to get new value of {param_name}")
+            print(f"Failed to get new value of {param_name}")
             return None
         result = next(
             (item for item in response["values"] if item["name"] == param_name), None
         )
         if not result:
-            await self.last_error.write(f"Failed to get new value of {param_name}")
+            print(f"Failed to get new value of {param_name}")
             return None
         actual_value = result["value"]
         if actual_value != value:
-            await self.last_error.write(
+            print(
                 f"Failed to set {param_name} to {value}, was set to {actual_value} instead."
             )
         return actual_value
@@ -347,7 +347,6 @@ class DetectorIOC(PVGroup):
 
     # Status and info
     connection_status = pvproperty(value=0, name="SYS:CONNECTED", read_only=True)
-    last_error = pvproperty(value="", name="SYS:ERROR", read_only=True, dtype=str)
     last_sync = pvproperty(value="", name="SYS:LAST_SYNC", read_only=True, dtype=str)
     sync = pvproperty(
         value="ON",
@@ -529,15 +528,15 @@ class DetectorIOC(PVGroup):
         if value:
             # TODO: Construct nexus file format here?
             if self._file_handle:
-                await self.last_error.write("File capture already in progress")
+                print("File capture already in progress")
                 return False
-            file_path = await self.file_path.value
+            file_path = self.file_path.value
             if not file_path:
-                await self.last_error.write(f"File path not set, got: {file_path}")
+                print(f"File path not set, got: {file_path}")
                 return False
-            filename = await self.file_name.value
+            filename = self.file_name.value
             if not filename or not filename.endswith(".nxs"):
-                await self.last_error.write(f"File name must be set and end with .nxs, got: {filename}")
+                print(f"File name must be set and end with .nxs, got: {filename}")
                 return False
             full_file_path = Path(file_path) / filename
             self._file_handle = open(full_file_path, "a")
@@ -550,7 +549,7 @@ class DetectorIOC(PVGroup):
                 await self.num_captured.write(0)
                 await self.file_status.write(f"File capture stopped, wrote to {full_file_path}")
             else:
-                await self.last_error.write("No file capture in progress")
+                print("No file capture in progress")
         return value
 
     @act_scans.scan(period=0.001)
@@ -578,14 +577,14 @@ class DetectorIOC(PVGroup):
                     current_time: str = time.strftime("%Y-%m-%d %H:%M:%S")
                     await self.last_sync.write(current_time)
                 else:
-                    await self.last_error.write(
+                    print(
                         "Failed to sync parameters - no response or invalid response"
                     )
             except asyncio.CancelledError:
                 # Handle graceful shutdown
                 raise
             except Exception as e:
-                await self.last_error.write(f"Sync error: {e}")
+                print(f"Sync error: {e}")
                 print(f"Sync error: {e}")  # Also log to console
 
     @connection_status.startup
@@ -623,7 +622,7 @@ class DetectorIOC(PVGroup):
         """Start acquisition when PV is written to."""
         if value > 0:
             if instance.value > 0:
-                await self.last_error.write("Acquisition already in progress")
+                print("Acquisition already in progress")
                 return instance.value
             response: dict[str, Any] | None = await self.tcp_client.send_command(
                 "ACTION", action="START"
@@ -631,20 +630,20 @@ class DetectorIOC(PVGroup):
             if response:
                 await self.acquisition_status.write(1)
             else:
-                await self.last_error.write("Failed to start acquisition")
+                print("Failed to start acquisition")
                 return 0
         else:
             if instance.value == 0:
-                await self.last_error.write("Acquisition not in progress")
+                print("Acquisition not in progress")
                 return 0
             response: dict[str, Any] | None = await self.tcp_client.send_command(
                 "ACTION", action="STOP"
             )
             if response:
                 await self.acquisition_status.write(0)
-                await self.last_error.write("Acquisition stopped")
+                print("Acquisition stopped")
             else:
-                await self.last_error.write("Failed to stop acquisition")
+                print("Failed to stop acquisition")
                 return self.acquire.value
 
         return value
@@ -658,9 +657,9 @@ class DetectorIOC(PVGroup):
             )
             if response:
                 await self.monitor_status.write(1)
-                await self.last_error.write("Monitor enabled")
+                print("Monitor enabled")
             else:
-                await self.last_error.write("Failed to enable monitor")
+                print("Failed to enable monitor")
         return value
 
     @monitor_off.putter
@@ -672,9 +671,9 @@ class DetectorIOC(PVGroup):
             )
             if response:
                 await self.monitor_status.write(0)
-                await self.last_error.write("Monitor disabled")
+                print("Monitor disabled")
             else:
-                await self.last_error.write("Failed to disable monitor")
+                print("Failed to disable monitor")
         return value
 
     @detector_off.putter
@@ -686,9 +685,9 @@ class DetectorIOC(PVGroup):
             )
             if response:
                 await self.detector_status.write(0)
-                await self.last_error.write("Detector disabled")
+                print("Detector disabled")
             else:
-                await self.last_error.write("Failed to disable detector")
+                print("Failed to disable detector")
         return value
 
     @get_image.putter
@@ -699,14 +698,14 @@ class DetectorIOC(PVGroup):
                 "ACTION", action="GET_IMAGE"
             )
             if response:
-                await self.last_error.write("Image requested")
+                print("Image requested")
                 data = await self.tcp_client.read_data()
                 if data:
-                    await self.last_error.write(f"Image received: {data}")
+                    print(f"Image received: {data}")
                 else:
-                    await self.last_error.write("Failed to read image")
+                    print("Failed to read image")
             else:
-                await self.last_error.write("Failed to request image")
+                print("Failed to request image")
         return value
 
     @get_stats.putter
@@ -717,9 +716,9 @@ class DetectorIOC(PVGroup):
                 "ACTION", action="GET_ACQ_STATS"
             )
             if response:
-                await self.last_error.write("Stats requested")
+                print("Stats requested")
             else:
-                await self.last_error.write("Failed to get stats")
+                print("Failed to get stats")
         return value
 
     async def cleanup(self) -> None:
