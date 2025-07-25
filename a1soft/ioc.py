@@ -154,10 +154,33 @@ class DetectorTCPClient:
                 read_time = time.perf_counter() - read_start
                 total_time = time.perf_counter() - command_start
                 
-                logger.info(f"TCP command '{cmd_type}': send {send_time*1000:.2f}ms, "
-                           f"read {read_time*1000:.2f}ms, total {total_time*1000:.2f}ms")
-
-                return json.loads(response.replace("\\", "/"))
+                # Parse response to get size info
+                try:
+                    parsed_response = json.loads(response.replace("\\", "/"))
+                    response_size = len(response.encode('utf-8'))
+                    
+                    # Log detailed command performance
+                    if cmd_type == "GET" and parameter:
+                        param_info = f"param='{parameter}'"
+                    elif cmd_type == "ACTION" and action:
+                        param_info = f"action='{action}'"
+                    else:
+                        param_info = f"value='{value}'" if value else ""
+                        
+                    logger.debug(f"TCP '{cmd_type}' {param_info}: "
+                               f"send {send_time*1000:.2f}ms, read {read_time*1000:.2f}ms, "
+                               f"total {total_time*1000:.2f}ms, response_size={response_size}B")
+                    
+                    # Warn about slow commands
+                    if total_time > 0.020:  # > 20ms
+                        logger.warning(f"SLOW TCP command: '{cmd_type}' {param_info} took {total_time*1000:.2f}ms "
+                                     f"(response: {response_size}B)")
+                    
+                    return parsed_response
+                    
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse JSON response: {e}, response: {response[:100]}...")
+                    return None
             except Exception as e:
                 logger.error(f"Command failed: {e}")
                 print(f"Command failed: {e}")
