@@ -588,7 +588,7 @@ class DetectorIOC(PVGroup):
                 value = response["values"][0]["value"]
                 if value > num_captured:
                     await self._write_image_to_file()
-                    await async_lib.gather(
+                    await async_lib.library.gather(
                         self.num_captured.write(value),
                         self.act_scans.write(value),
                     )
