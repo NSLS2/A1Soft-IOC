@@ -123,6 +123,9 @@ class DetectorTCPClient:
                 
                 # Read response in larger chunks and decode only once at the end
                 buffer = b""
+                first_byte_time = None
+                bytes_received = 0
+                
                 while True:
                     try:
                         # Read up to 4KB at a time instead of 1 byte
@@ -132,8 +135,13 @@ class DetectorTCPClient:
                         
                         if not chunk:
                             raise ConnectionError("Socket closed during response read")
+                        
+                        # Record when first byte arrives (detector response preparation time)
+                        if first_byte_time is None:
+                            first_byte_time = time.perf_counter()
                             
                         buffer += chunk
+                        bytes_received += len(chunk)
                         
                         # Look for \r\n terminator in the raw bytes (no decoding yet)
                         terminator_pos = buffer.find(b'\r\n')
@@ -150,6 +158,15 @@ class DetectorTCPClient:
                         return None
 
                 read_time = time.perf_counter() - read_start
+                
+                # Calculate timing breakdown
+                if first_byte_time:
+                    detector_prep_time = first_byte_time - read_start  # Time until first byte
+                    network_transfer_time = time.perf_counter() - first_byte_time  # Time to receive all bytes
+                else:
+                    detector_prep_time = read_time
+                    network_transfer_time = 0.0
+                
                 total_time = time.perf_counter() - command_start
                 
                 # Parse response to get size info
@@ -169,10 +186,13 @@ class DetectorTCPClient:
                                f"send {send_time*1000:.2f}ms, read {read_time*1000:.2f}ms, "
                                f"total {total_time*1000:.2f}ms, response_size={response_size}B")
                     
-                    # Warn about slow commands
+                    # Warn about slow commands with detailed timing breakdown
                     if total_time > 0.020:  # > 20ms
                         logger.warning(f"SLOW TCP command: '{cmd_type}' {param_info} took {total_time*1000:.2f}ms "
-                                     f"(response: {response_size}B)")
+                                     f"(detector_prep: {detector_prep_time*1000:.2f}ms, "
+                                     f"network_transfer: {network_transfer_time*1000:.2f}ms, "
+                                     f"response: {response_size}B, "
+                                     f"transfer_rate: {response_size/(network_transfer_time*1024) if network_transfer_time > 0 else 0:.1f} KB/s)")
                     
                     return parsed_response
                     
