@@ -605,7 +605,7 @@ class DetectorIOC(PVGroup):
                 if value != instance.value:
                     await async_lib.library.gather(self.acquire.write(0), self.acquisition_status.write(0), self.state.write(value))
             else:
-                print(f"Failed to get state update, got: {response}")Q
+                print(f"Failed to get state update, got: {response}")
 
     @sync.scan(period=0.1, use_scan_field=True)
     async def sync(self, instance: PvpropertyData, async_lib: Any) -> Any:
