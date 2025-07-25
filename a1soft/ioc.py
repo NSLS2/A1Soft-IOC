@@ -121,7 +121,7 @@ class DetectorTCPClient:
 
                 read_start = time.perf_counter()
                 
-                # Read response in larger chunks (much more efficient than 1 byte at a time)
+                # Read response in larger chunks and decode only once at the end
                 buffer = b""
                 while True:
                     try:
@@ -135,16 +135,14 @@ class DetectorTCPClient:
                             
                         buffer += chunk
                         
-                        # Look for \r\n terminator in the buffer
-                        while b'\r\n' in buffer:
-                            line, buffer = buffer.split(b'\r\n', 1)
-                            response = line.decode('utf-8')
-                            # Found complete response, exit both loops
+                        # Look for \r\n terminator in the raw bytes (no decoding yet)
+                        terminator_pos = buffer.find(b'\r\n')
+                        if terminator_pos != -1:
+                            # Found complete response, extract the message part
+                            response_bytes = buffer[:terminator_pos]
+                            # Decode only once at the end
+                            response = response_bytes.decode('utf-8')
                             break
-                        else:
-                            # No complete line found, continue reading
-                            continue
-                        break  # Exit outer loop when we have a complete response
 
                     except asyncio.TimeoutError:
                         logger.error("Command timeout after 5 seconds")
@@ -772,7 +770,7 @@ class DetectorIOC(PVGroup):
                 print("No file capture in progress")
         return value
 
-    @act_scans.scan(period=0.001)
+    @act_scans.scan(period=0.05)  # 50ms scan instead of 1ms - still faster than detector response
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for acutal number of scans completed."""
         if self.acquisition_status.value == 1 and self.file_capture.value == "On":
@@ -780,13 +778,15 @@ class DetectorIOC(PVGroup):
             num_captured = self.num_captured.value
             
             param_start = time.perf_counter()
+            # Get actScans parameter
             response = await self.tcp_client.get_parameter(self._pvs_to_param_names[self.act_scans])
             param_time = time.perf_counter() - param_start
             
             if response and "values" in response:
-                value = response["values"][0]["value"]
-                if value > num_captured:
-                    logger.info(f"New scan detected: {value} (was {num_captured}), "
+                act_scans_value = response["values"][0]["value"]
+                
+                if act_scans_value > num_captured:
+                    logger.info(f"New scan detected: {act_scans_value} (was {num_captured}), "
                               f"parameter check took {param_time*1000:.2f}ms")
                     
                     write_start = time.perf_counter()
@@ -795,8 +795,8 @@ class DetectorIOC(PVGroup):
                     
                     update_start = time.perf_counter()
                     await async_lib.library.gather(
-                        self.num_captured.write(value),
-                        self.act_scans.write(value),
+                        self.num_captured.write(act_scans_value),
+                        self.act_scans.write(act_scans_value),
                     )
                     update_time = time.perf_counter() - update_start
                     
@@ -814,11 +814,12 @@ class DetectorIOC(PVGroup):
                     # Log performance summary every 10 cycles
                     if self._perf_stats["total_cycles"] % 10 == 0:
                         self._log_performance_summary()
+                    
             else:
                 logger.error(f"Failed to get actual number of scans, got: {response}")
                 print(f"Failed to get actual number of scans, got: {response}")
 
-    @state.scan(period=0.001)
+    @state.scan(period=0.1)  # 100ms scan instead of 1ms - state changes are infrequent
     async def state(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for state changes."""
         if self.acquisition_status.value == 1:
@@ -830,7 +831,7 @@ class DetectorIOC(PVGroup):
             else:
                 print(f"Failed to get state update, got: {response}")
 
-    @sync.scan(period=0.1, use_scan_field=True)
+    @sync.scan(period=1.0, use_scan_field=True)  # Reduced from 0.1s to 1s - parameters change infrequently
     async def sync(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Synchronize parameters with detector."""
         if instance.value == "ON":
