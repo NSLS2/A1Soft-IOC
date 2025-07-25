@@ -541,7 +541,7 @@ class DetectorIOC(PVGroup):
             # Hack to recover the current frame from the sum of the scans so far
             # This is needed because the current frame is already reset to all zeros
             # when the act_scans parameter is incremented...
-            current_frame = data["channel_2_data"] - self._last_array
+            current_frame = data["channel_2_data"] - self._last_array if self._last_array is not None else data["channel_2_data"]
             data["channel_1_data"] = current_frame
             self._last_array = data["channel_2_data"]
             self._file_handle.write(str(data))
