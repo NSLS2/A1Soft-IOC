@@ -536,7 +536,7 @@ class DetectorIOC(PVGroup):
         """Write image to file."""
         if not self._file_handle:
             return
-        data = await self.tcp_client.read_data()
+        data = await self._get_current_frame()
         if data:
             # Hack to recover the current frame from the sum of the scans so far
             # This is needed because the current frame is already reset to all zeros
