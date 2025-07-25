@@ -6,6 +6,7 @@ Exposes EPICS PVs that control acquisition, parameters, and monitoring.
 
 import asyncio
 import json
+import logging
 import random
 import socket
 import time
@@ -16,6 +17,10 @@ from typing import Any, cast, Literal
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyData
 from caproto import ChannelType
 import numpy as np
+
+# Configure logging for performance monitoring
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class DetectorTCPClient:
     """TCP client to communicate with LabView detector system."""
@@ -102,14 +107,19 @@ class DetectorTCPClient:
 
         async with self._json_lock:
             try:
+                command_start = time.perf_counter()
                 loop = asyncio.get_event_loop()
                 msg: bytes = (cmd + "\r\n").encode()
+                
+                send_start = time.perf_counter()
                 await loop.sock_sendall(json_socket, msg)
+                send_time = time.perf_counter() - send_start
 
                 # Read response using asyncio-compatible operations
                 response: str = ""
                 char_ret: bool = False
 
+                read_start = time.perf_counter()
                 while True:
                     try:
                         # Use asyncio.wait_for to add timeout capability
@@ -126,11 +136,19 @@ class DetectorTCPClient:
                             response += data.decode("utf-8")
 
                     except asyncio.TimeoutError:
+                        logger.error("Command timeout after 5 seconds")
                         print("Command timeout after 5 seconds")
                         return None
 
+                read_time = time.perf_counter() - read_start
+                total_time = time.perf_counter() - command_start
+                
+                logger.debug(f"TCP command '{cmd_type}': send {send_time*1000:.2f}ms, "
+                           f"read {read_time*1000:.2f}ms, total {total_time*1000:.2f}ms")
+
                 return json.loads(response.replace("\\", "/"))
             except Exception as e:
+                logger.error(f"Command failed: {e}")
                 print(f"Command failed: {e}")
                 return None
 
@@ -149,9 +167,11 @@ class DetectorTCPClient:
 
         async with self._data_lock:
             try:
+                read_start = time.perf_counter()
                 loop = asyncio.get_event_loop()
                 
                 # Read 40-byte header
+                header_start = time.perf_counter()
                 header_data = b""
                 while len(header_data) < 40:
                     try:
@@ -163,13 +183,17 @@ class DetectorTCPClient:
                             raise ConnectionError("Socket closed while reading header")
                         header_data += chunk
                     except asyncio.TimeoutError:
+                        logger.error("Timeout reading data header")
                         print("Timeout reading data header")
                         return None
+                
+                header_time = time.perf_counter() - header_start
                 
                 # Parse header
                 marker = int.from_bytes(header_data[0:4], byteorder="big", signed=False)
                 
                 if marker != 0xf0f0:
+                    logger.error(f"Invalid marker={marker:#x}, expected 0xf0f0")
                     print(f"ERROR: Invalid marker={marker:#x}, expected 0xf0f0")
                     return None
                     
@@ -204,11 +228,15 @@ class DetectorTCPClient:
                 
                 # Read first data channel if length > 0
                 if length > 0:
+                    ch1_start = time.perf_counter()
                     channel_1_data = await self._read_channel_data(length, timeout=10.0)
+                    ch1_read_time = time.perf_counter() - ch1_start
+                    
                     if channel_1_data is None:
                         return None
                         
                     # Parse pixel data from bytes to integers
+                    parse_start = time.perf_counter()
                     pixel_data_1 = []
                     sum_1 = 0
                     for i in range(length // 4):
@@ -222,15 +250,21 @@ class DetectorTCPClient:
                         
                     result["channel_1_data"] = np.reshape(pixel_data_1, (cur_height, cur_width))
                     result["channel_1_sum"] = sum_1
+                    ch1_parse_time = time.perf_counter() - parse_start
+                    logger.info(f"Channel 1: read {ch1_read_time*1000:.2f}ms, parse {ch1_parse_time*1000:.2f}ms, sum: {sum_1}")
                     print(f"Channel 1 sum: {sum_1}")
                 
                 # Read second data channel if cur_length > 0  
                 if cur_length > 0:
+                    ch2_start = time.perf_counter()
                     channel_2_data = await self._read_channel_data(cur_length, timeout=10.0)
+                    ch2_read_time = time.perf_counter() - ch2_start
+                    
                     if channel_2_data is None:
                         return None
                         
                     # Parse pixel data from bytes to integers
+                    parse_start = time.perf_counter()
                     pixel_data_2 = []
                     sum_2 = 0
                     for i in range(cur_length // 4):
@@ -244,11 +278,19 @@ class DetectorTCPClient:
                         
                     result["channel_2_data"] = np.reshape(pixel_data_2, (cur_height, cur_width))
                     result["channel_2_sum"] = sum_2
+                    ch2_parse_time = time.perf_counter() - parse_start
+                    logger.info(f"Channel 2: read {ch2_read_time*1000:.2f}ms, parse {ch2_parse_time*1000:.2f}ms, sum: {sum_2}")
                     print(f"Channel 2 sum: {sum_2}")
+                    
+                total_read_time = time.perf_counter() - read_start
+                logger.info(f"Total data read: header {header_time*1000:.2f}ms, "
+                          f"total {total_read_time*1000:.2f}ms, "
+                          f"data size: ch1={length}bytes, ch2={cur_length}bytes")
                     
                 return result
                 
             except Exception as e:
+                logger.error(f"Error reading data: {e}")
                 print(f"Error reading data: {e}")
                 return None
     
@@ -516,20 +558,42 @@ class DetectorIOC(PVGroup):
         self._file_handle: Any | None = None
         self._full_file_path: Path | None = None
         self._last_array: np.ndarray | None = None
+        
+        # Performance tracking
+        self._perf_stats = {
+            "total_cycles": 0,
+            "total_cycle_time": 0.0,
+            "total_frame_time": 0.0,
+            "total_write_time": 0.0,
+            "queue_full_drops": 0,
+            "failed_frames": 0,
+            "last_reset": time.perf_counter()
+        }
 
     async def _get_current_frame(self) -> dict[str, Any]| None:
+        start_time = time.perf_counter()
         response: dict[str, Any] | None = await self.tcp_client.send_command(
             "ACTION", action="GET_IMAGE"
         )
+        command_time = time.perf_counter()
+        logger.info(f"GET_IMAGE command took {(command_time - start_time)*1000:.2f}ms")
+        
         if response:
             print("Image requested")
             data = await self.tcp_client.read_data()
+            read_time = time.perf_counter()
+            logger.info(f"read_data took {(read_time - command_time)*1000:.2f}ms")
+            
             if data:
+                total_time = read_time - start_time
+                logger.info(f"Total frame acquisition took {total_time*1000:.2f}ms")
                 print(f"Image received: {data}")
                 return data
             else:
+                logger.warning("Failed to read image data")
                 print("Failed to read image")
         else:
+            logger.warning("Failed to request image")
             print("Failed to request image")
 
         return None
@@ -539,13 +603,18 @@ class DetectorIOC(PVGroup):
         while True:
             try:
                 # Wait for data from the queue
+                queue_start = time.perf_counter()
                 data = await self._image_queue.get()
+                queue_wait_time = time.perf_counter() - queue_start
+                logger.info(f"Queue wait took {queue_wait_time*1000:.2f}ms, queue size: {self._image_queue.qsize()}")
                 
                 # Check for shutdown signal (None is used as sentinel)
                 if data is None:
                     break
                     
                 if self._file_handle:
+                    process_start = time.perf_counter()
+                    
                     # Hack to recover the current frame from the sum of the scans so far
                     # This is needed because the current frame is already reset to all zeros
                     # when the act_scans parameter is incremented...
@@ -553,9 +622,17 @@ class DetectorIOC(PVGroup):
                     data["channel_1_data"] = current_frame
                     self._last_array = data["channel_2_data"]
                     
+                    data_processing_time = time.perf_counter() - process_start
+                    
                     # Write to file (this is the potentially blocking operation)
+                    write_start = time.perf_counter()
                     self._file_handle.write(str(data))
                     self._file_handle.flush()
+                    write_time = time.perf_counter() - write_start
+                    
+                    total_processing_time = time.perf_counter() - process_start
+                    logger.info(f"File write: data processing {data_processing_time*1000:.2f}ms, "
+                              f"write+flush {write_time*1000:.2f}ms, total {total_processing_time*1000:.2f}ms")
                     
                 # Mark the task as done
                 self._image_queue.task_done()
@@ -564,6 +641,7 @@ class DetectorIOC(PVGroup):
                 # Handle graceful shutdown
                 break
             except Exception as e:
+                logger.error(f"Error in background file writer: {e}")
                 print(f"Error in background file writer: {e}")
                 # Mark the task as done even on error
                 self._image_queue.task_done()
@@ -573,15 +651,51 @@ class DetectorIOC(PVGroup):
         if not self._file_handle:
             return
             
+        start_time = time.perf_counter()
         data = await self._get_current_frame()
+        frame_time = time.perf_counter() - start_time
+        
         if data:
             try:
+                queue_start = time.perf_counter()
                 # Put data in queue without blocking (will raise QueueFull if full)
                 self._image_queue.put_nowait(data)
+                queue_time = time.perf_counter() - queue_start
+                total_time = time.perf_counter() - start_time
+                
+                logger.info(f"Image queued: frame acquisition {frame_time*1000:.2f}ms, "
+                          f"queue insertion {queue_time*1000:.2f}ms, "
+                          f"total {total_time*1000:.2f}ms, queue size: {self._image_queue.qsize()}")
+                
+                # Update performance stats
+                self._perf_stats["total_frame_time"] += frame_time
             except asyncio.QueueFull:
+                logger.warning(f"Image queue is full ({self._image_queue.qsize()} items), dropping frame")
                 print("Image queue is full, dropping frame")
+                self._perf_stats["queue_full_drops"] += 1
         else:
+            logger.error(f"Failed to get current frame for file writing (took {frame_time*1000:.2f}ms)")
             print("Failed to get current frame for file writing")
+            self._perf_stats["failed_frames"] += 1
+
+    def _log_performance_summary(self) -> None:
+        """Log performance statistics summary."""
+        stats = self._perf_stats
+        cycles = stats["total_cycles"]
+        
+        if cycles > 0:
+            avg_cycle_time = (stats["total_cycle_time"] / cycles) * 1000
+            avg_frame_time = (stats["total_frame_time"] / cycles) * 1000  
+            avg_write_time = (stats["total_write_time"] / cycles) * 1000
+            elapsed = time.perf_counter() - stats["last_reset"]
+            cycle_rate = cycles / elapsed
+            
+            logger.info(f"=== PERFORMANCE SUMMARY ({cycles} cycles, {elapsed:.1f}s) ===")
+            logger.info(f"Cycle rate: {cycle_rate:.2f} Hz")
+            logger.info(f"Average times: cycle {avg_cycle_time:.1f}ms, frame {avg_frame_time:.1f}ms, write {avg_write_time:.1f}ms")
+            logger.info(f"Queue drops: {stats['queue_full_drops']}, Failed frames: {stats['failed_frames']}")
+            logger.info(f"Queue size: {self._image_queue.qsize()}")
+            logger.info("=" * 50)
 
     @file_capture.putter
     async def file_capture(self, instance: PvpropertyData, value: Literal["On", "Off"]) -> bool:
@@ -646,17 +760,46 @@ class DetectorIOC(PVGroup):
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for acutal number of scans completed."""
         if self.acquisition_status.value == 1 and self.file_capture.value == "On":
+            cycle_start = time.perf_counter()
             num_captured = self.num_captured.value
+            
+            param_start = time.perf_counter()
             response = await self.tcp_client.get_parameter(self._pvs_to_param_names[self.act_scans])
+            param_time = time.perf_counter() - param_start
+            
             if response and "values" in response:
                 value = response["values"][0]["value"]
                 if value > num_captured:
+                    logger.info(f"New scan detected: {value} (was {num_captured}), "
+                              f"parameter check took {param_time*1000:.2f}ms")
+                    
+                    write_start = time.perf_counter()
                     await self._write_image_to_file()
+                    write_time = time.perf_counter() - write_start
+                    
+                    update_start = time.perf_counter()
                     await async_lib.library.gather(
                         self.num_captured.write(value),
                         self.act_scans.write(value),
                     )
+                    update_time = time.perf_counter() - update_start
+                    
+                    total_cycle_time = time.perf_counter() - cycle_start
+                    logger.info(f"Scan cycle complete: parameter {param_time*1000:.2f}ms, "
+                              f"write {write_time*1000:.2f}ms, "
+                              f"update {update_time*1000:.2f}ms, "
+                              f"total {total_cycle_time*1000:.2f}ms")
+                    
+                    # Update performance statistics
+                    self._perf_stats["total_cycles"] += 1
+                    self._perf_stats["total_cycle_time"] += total_cycle_time
+                    self._perf_stats["total_write_time"] += write_time
+                    
+                    # Log performance summary every 10 cycles
+                    if self._perf_stats["total_cycles"] % 10 == 0:
+                        self._log_performance_summary()
             else:
+                logger.error(f"Failed to get actual number of scans, got: {response}")
                 print(f"Failed to get actual number of scans, got: {response}")
 
     @state.scan(period=0.001)
