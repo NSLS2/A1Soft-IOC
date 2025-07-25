@@ -588,9 +588,24 @@ class DetectorIOC(PVGroup):
                 value = response["values"][0]["value"]
                 if value > num_captured:
                     await self._write_image_to_file()
-                    await self.num_captured.write(value)
+                    await async_lib.gather(
+                        self.num_captured.write(value),
+                        self.act_scans.write(value),
+                    )
             else:
                 print(f"Failed to get actual number of scans, got: {response}")
+
+    @state.scan(period=0.001)
+    async def state(self, instance: PvpropertyData, async_lib: Any) -> Any:
+        """Scan for state changes."""
+        if self.acquisition_status.value == 1:
+            response = await self.tcp_client.get_parameter(self._pvs_to_param_names[self.state])
+            if response and "values" in response:
+                value = response["values"][0]["value"]
+                if value != instance.value:
+                    await async_lib.library.gather(self.acquire.write(0), self.acquisition_status.write(0), self.state.write(value))
+            else:
+                print(f"Failed to get state update, got: {response}")Q
 
     @sync.scan(period=0.1, use_scan_field=True)
     async def sync(self, instance: PvpropertyData, async_lib: Any) -> Any:
