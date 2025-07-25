@@ -571,7 +571,8 @@ class DetectorIOC(PVGroup):
                 self._file_handle.flush()
                 self._file_handle.close()
                 self._file_handle = None
-                await self.num_captured.write(0)
+                self._full_file_path = None
+                self._last_array = None
                 await self.file_status.write(f"File capture stopped, wrote to {self._full_file_path}")
             else:
                 print("No file capture in progress")
