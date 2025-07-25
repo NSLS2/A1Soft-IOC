@@ -120,20 +120,31 @@ class DetectorTCPClient:
                 char_ret: bool = False
 
                 read_start = time.perf_counter()
+                
+                # Read response in larger chunks (much more efficient than 1 byte at a time)
+                buffer = b""
                 while True:
                     try:
-                        # Use asyncio.wait_for to add timeout capability
-                        data: bytes = await asyncio.wait_for(
-                            loop.sock_recv(json_socket, 1), timeout=5.0
+                        # Read up to 4KB at a time instead of 1 byte
+                        chunk = await asyncio.wait_for(
+                            loop.sock_recv(json_socket, 4096), timeout=5.0
                         )
-
-                        if data == b"\r":
-                            char_ret = True
-                        elif data == b"\n" and char_ret:
+                        
+                        if not chunk:
+                            raise ConnectionError("Socket closed during response read")
+                            
+                        buffer += chunk
+                        
+                        # Look for \r\n terminator in the buffer
+                        while b'\r\n' in buffer:
+                            line, buffer = buffer.split(b'\r\n', 1)
+                            response = line.decode('utf-8')
+                            # Found complete response, exit both loops
                             break
                         else:
-                            char_ret = False
-                            response += data.decode("utf-8")
+                            # No complete line found, continue reading
+                            continue
+                        break  # Exit outer loop when we have a complete response
 
                     except asyncio.TimeoutError:
                         logger.error("Command timeout after 5 seconds")
@@ -143,7 +154,7 @@ class DetectorTCPClient:
                 read_time = time.perf_counter() - read_start
                 total_time = time.perf_counter() - command_start
                 
-                logger.debug(f"TCP command '{cmd_type}': send {send_time*1000:.2f}ms, "
+                logger.info(f"TCP command '{cmd_type}': send {send_time*1000:.2f}ms, "
                            f"read {read_time*1000:.2f}ms, total {total_time*1000:.2f}ms")
 
                 return json.loads(response.replace("\\", "/"))
