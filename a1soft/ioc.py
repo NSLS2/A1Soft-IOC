@@ -235,24 +235,15 @@ class DetectorTCPClient:
                     if channel_1_data is None:
                         return None
                         
-                    # Parse pixel data from bytes to integers
+                    # Use numpy to directly interpret the binary data (much faster than Python loops)
                     parse_start = time.perf_counter()
-                    pixel_data_1 = []
-                    sum_1 = 0
-                    for i in range(length // 4):
-                        pixel = int.from_bytes(
-                            channel_1_data[i * 4:(i * 4) + 4],
-                            byteorder="little",
-                            signed=False
-                        )
-                        pixel_data_1.append(pixel)
-                        sum_1 += pixel
-                        
-                    result["channel_1_data"] = np.reshape(pixel_data_1, (cur_height, cur_width))
-                    result["channel_1_sum"] = sum_1
+                    pixel_data_1 = np.frombuffer(channel_1_data, dtype='<u4')  # little-endian uint32
+                    result["channel_1_data"] = pixel_data_1.reshape((cur_height, cur_width))
+                    result["channel_1_sum"] = int(pixel_data_1.sum())
                     ch1_parse_time = time.perf_counter() - parse_start
-                    logger.info(f"Channel 1: read {ch1_read_time*1000:.2f}ms, parse {ch1_parse_time*1000:.2f}ms, sum: {sum_1}")
-                    print(f"Channel 1 sum: {sum_1}")
+                    
+                    logger.info(f"Channel 1: read {ch1_read_time*1000:.2f}ms, parse {ch1_parse_time*1000:.2f}ms, sum: {result['channel_1_sum']}")
+                    print(f"Channel 1 sum: {result['channel_1_sum']}")
                 
                 # Read second data channel if cur_length > 0  
                 if cur_length > 0:
@@ -263,24 +254,15 @@ class DetectorTCPClient:
                     if channel_2_data is None:
                         return None
                         
-                    # Parse pixel data from bytes to integers
+                    # Use numpy to directly interpret the binary data (much faster than Python loops)
                     parse_start = time.perf_counter()
-                    pixel_data_2 = []
-                    sum_2 = 0
-                    for i in range(cur_length // 4):
-                        pixel = int.from_bytes(
-                            channel_2_data[i * 4:(i * 4) + 4],
-                            byteorder="little", 
-                            signed=False
-                        )
-                        pixel_data_2.append(pixel)
-                        sum_2 += pixel
-                        
-                    result["channel_2_data"] = np.reshape(pixel_data_2, (cur_height, cur_width))
-                    result["channel_2_sum"] = sum_2
+                    pixel_data_2 = np.frombuffer(channel_2_data, dtype='<u4')  # little-endian uint32
+                    result["channel_2_data"] = pixel_data_2.reshape((cur_height, cur_width))
+                    result["channel_2_sum"] = int(pixel_data_2.sum())
                     ch2_parse_time = time.perf_counter() - parse_start
-                    logger.info(f"Channel 2: read {ch2_read_time*1000:.2f}ms, parse {ch2_parse_time*1000:.2f}ms, sum: {sum_2}")
-                    print(f"Channel 2 sum: {sum_2}")
+                    
+                    logger.info(f"Channel 2: read {ch2_read_time*1000:.2f}ms, parse {ch2_parse_time*1000:.2f}ms, sum: {result['channel_2_sum']}")
+                    print(f"Channel 2 sum: {result['channel_2_sum']}")
                     
                 total_read_time = time.perf_counter() - read_start
                 logger.info(f"Total data read: header {header_time*1000:.2f}ms, "
