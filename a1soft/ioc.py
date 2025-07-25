@@ -64,9 +64,9 @@ class DetectorTCPClient:
             )
 
             self.connected = True
-            print("Connected to detector TCP interface")
+            logger.info("Connected to detector TCP interface")
         except Exception as e:
-            print(f"Failed to connect to detector: {e}")
+            logger.error(f"Failed to connect to detector: {e}")
             self.connected = False
 
     async def disconnect(self) -> None:
@@ -258,7 +258,6 @@ class DetectorTCPClient:
                 
             except Exception as e:
                 logger.error(f"Error reading data: {e}")
-                print(f"Error reading data: {e}")
                 return None
     
     async def _read_channel_data(self, expected_length: int, timeout: float = 10.0) -> bytes | None:
@@ -281,13 +280,13 @@ class DetectorTCPClient:
                         raise ConnectionError("Socket closed while reading channel data")
                     data += chunk
                 except asyncio.TimeoutError:
-                    print(f"Timeout reading channel data, got {len(data)}/{expected_length} bytes")
+                    logger.error(f"Timeout reading channel data, got {len(data)}/{expected_length} bytes")
                     return None
                     
             return data
             
         except Exception as e:
-            print(f"Error reading channel data: {e}")
+            logger.error(f"Error reading channel data: {e}")
             return None
 
     async def get_all_parameters(self) -> dict[str, Any] | None:
@@ -311,21 +310,21 @@ class DetectorIOC(PVGroup):
         param_name = self._pvs_to_param_names[instance]
         response = await self.tcp_client.set_parameter(param_name, value)
         if not response:
-            print(f"Failed to set {param_name} to {value}")
+            logger.error(f"Failed to set {param_name} to {value}")
             return None
         response = await self.tcp_client.get_parameter(param_name)
         if not response:
-            print(f"Failed to get new value of {param_name}")
+            logger.error(f"Failed to get new value of {param_name}")
             return None
         result = next(
             (item for item in response["values"] if item["name"] == param_name), None
         )
         if not result:
-            print(f"Failed to get new value of {param_name}")
+            logger.error(f"Failed to get new value of {param_name}")
             return None
         actual_value = result["value"]
         if actual_value != value:
-            print(
+            logger.error(
                 f"Failed to set {param_name} to {value}, was set to {actual_value} instead."
             )
         return actual_value
@@ -532,17 +531,15 @@ class DetectorIOC(PVGroup):
         )
         
         if response:
-            print("Image requested")
+            logger.info("Image requested")
             data = await self.tcp_client.read_data()
             
             if data:
                 return data
             else:
                 logger.warning("Failed to read image data")
-                print("Failed to read image")
         else:
             logger.warning("Failed to request image")
-            print("Failed to request image")
 
         return None
 
@@ -579,7 +576,6 @@ class DetectorIOC(PVGroup):
                 break
             except Exception as e:
                 logger.error(f"Error in background file writer: {e}")
-                print(f"Error in background file writer: {e}")
                 # Mark the task as done even on error
                 self._image_queue.task_done()
 
@@ -606,15 +602,15 @@ class DetectorIOC(PVGroup):
         if value == "On":
             # TODO: Construct nexus file format here?
             if self._file_handle:
-                print("File capture already in progress")
+                logger.warning("File capture already in progress")
                 return False
             file_path = self.file_path.value
             if not file_path:
-                print(f"File path not set, got: {file_path}")
+                logger.error(f"File path not set, got: {file_path}")
                 return False
             filename = self.file_name.value
             if not filename or not filename.endswith(".nxs"):
-                print(f"File name must be set and end with .nxs, got: {filename}")
+                logger.error(f"File name must be set and end with .nxs, got: {filename}")
                 return False
             self._full_file_path = Path(file_path) / filename
             self._file_handle = open(self._full_file_path, "a")
@@ -635,7 +631,7 @@ class DetectorIOC(PVGroup):
                 try:
                     await asyncio.wait_for(self._file_writer_task, timeout=5.0)
                 except asyncio.TimeoutError:
-                    print("Warning: File writer task did not shutdown cleanly")
+                    logger.warning("File writer task did not shutdown cleanly")
                     self._file_writer_task.cancel()
                 self._file_writer_task = None
                 
@@ -656,7 +652,7 @@ class DetectorIOC(PVGroup):
                         
                 await self.file_status.write(f"File capture stopped, wrote to {self._full_file_path}")
             else:
-                print("No file capture in progress")
+                logger.error("No file capture in progress")
         return value
 
     @act_scans.scan(period=0.05)  # 50ms scan instead of 1ms - still faster than detector response
@@ -706,27 +702,26 @@ class DetectorIOC(PVGroup):
                     current_time: str = time.strftime("%Y-%m-%d %H:%M:%S")
                     await self.last_sync.write(current_time)
                 else:
-                    print(
+                    logger.error(
                         "Failed to sync parameters - no response or invalid response"
                     )
             except asyncio.CancelledError:
                 # Handle graceful shutdown
                 raise
             except Exception as e:
-                print(f"Sync error: {e}")
-                print(f"Sync error: {e}")  # Also log to console
+                logger.error(f"Sync error: {e}")
 
     @connection_status.startup
     async def connection_status(self, instance: Any, async_lib: Any) -> None:
         """Initialize TCP connection and background tasks on IOC startup."""
-        print("Initializing detector connection...")
+        logger.info("Initializing detector connection...")
         await self.tcp_client.connect()
         await self.connection_status.write(1 if self.tcp_client.connected else 0)
 
         if not self.tcp_client.connected:
             raise RuntimeError("Failed to connect to detector")
 
-        print("Detector connection established")
+        logger.info("Detector connection established")
 
     async def _update_pvs_from_response(
         self, response: dict[str, Any], async_lib: Any
@@ -744,14 +739,14 @@ class DetectorIOC(PVGroup):
                         write_tasks.append(pv.write(new_value))
             await async_lib.library.gather(*write_tasks)
         except Exception as e:
-            print(f"Error updating PVs: {e}")
+            logger.error(f"Error updating PVs: {e}")
 
     @acquire.putter
     async def acquire(self, instance: Any, value: int) -> int:
         """Start acquisition when PV is written to."""
         if value > 0:
             if instance.value > 0:
-                print("Acquisition already in progress")
+                logger.warning("Acquisition already in progress")
                 return instance.value
             response: dict[str, Any] | None = await self.tcp_client.send_command(
                 "ACTION", action="START"
@@ -759,20 +754,20 @@ class DetectorIOC(PVGroup):
             if response:
                 await self.acquisition_status.write(1)
             else:
-                print("Failed to start acquisition")
+                logger.error("Failed to start acquisition")
                 return 0
         else:
             if instance.value == 0:
-                print("Acquisition not in progress")
+                logger.warning("Acquisition not in progress")
                 return 0
             response: dict[str, Any] | None = await self.tcp_client.send_command(
                 "ACTION", action="STOP"
             )
             if response:
                 await self.acquisition_status.write(0)
-                print("Acquisition stopped")
+                logger.info("Acquisition stopped")
             else:
-                print("Failed to stop acquisition")
+                logger.error("Failed to stop acquisition")
                 return self.acquire.value
 
         return value
@@ -786,9 +781,9 @@ class DetectorIOC(PVGroup):
             )
             if response:
                 await self.monitor_status.write(1)
-                print("Monitor enabled")
+                logger.info("Monitor enabled")
             else:
-                print("Failed to enable monitor")
+                logger.error("Failed to enable monitor")
         return value
 
     @monitor_off.putter
@@ -800,9 +795,9 @@ class DetectorIOC(PVGroup):
             )
             if response:
                 await self.monitor_status.write(0)
-                print("Monitor disabled")
+                logger.info("Monitor disabled")
             else:
-                print("Failed to disable monitor")
+                logger.error("Failed to disable monitor")
         return value
 
     @detector_off.putter
@@ -814,9 +809,9 @@ class DetectorIOC(PVGroup):
             )
             if response:
                 await self.detector_status.write(0)
-                print("Detector disabled")
+                logger.info("Detector disabled")
             else:
-                print("Failed to disable detector")
+                logger.error("Failed to disable detector")
         return value
 
     @get_image.putter
@@ -825,9 +820,9 @@ class DetectorIOC(PVGroup):
         if value == 1:
             data = await self._get_current_frame()
             if data:
-                print(f"Image received: {data}")
+                logger.info(f"Image received: {data}")
             else:
-                print("Failed to get image")
+                logger.error("Failed to get image")
         return value
 
     @get_stats.putter
@@ -838,9 +833,9 @@ class DetectorIOC(PVGroup):
                 "ACTION", action="GET_ACQ_STATS"
             )
             if response:
-                print("Stats requested")
+                logger.info("Stats requested")
             else:
-                print("Failed to get stats")
+                logger.error("Failed to get stats")
         return value
 
     async def cleanup(self) -> None:
@@ -855,13 +850,13 @@ class DetectorIOC(PVGroup):
                 await self._image_queue.put(None)
                 await asyncio.wait_for(self._file_writer_task, timeout=5.0)
             except asyncio.TimeoutError:
-                print("Warning: File writer task did not shutdown cleanly during cleanup")
+                logger.warning("File writer task did not shutdown cleanly during cleanup")
                 self._file_writer_task.cancel()
             except Exception as e:
-                print(f"Error during file writer cleanup: {e}")
+                logger.error(f"Error during file writer cleanup: {e}")
                 self._file_writer_task.cancel()
         await self.tcp_client.disconnect()
-        print("Cleanup completed")
+        logger.info("Cleanup completed")
 
 
 if __name__ == "__main__":
