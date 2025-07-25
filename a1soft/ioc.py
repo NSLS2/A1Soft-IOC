@@ -138,6 +138,11 @@ class DetectorTCPClient:
         """Read image data from detector data socket.
         
         Returns dict with parsed header info and pixel data, or None on error/timeout.
+
+        The first data channel appears to be the current image, the second data channel is the sum of the images so far.
+
+        The timing on the first data channel needs to be extremely precise, because the start of the next scan will
+        0 out all of the data.
         """
         if not self.connected or not self.data_socket:
             return None
@@ -338,6 +343,7 @@ class DetectorIOC(PVGroup):
     file_name = pvproperty(value="", name="FILE:NAME", dtype=str)
     file_path = pvproperty(value="", name="FILE:PATH", dtype=str)
     file_status = pvproperty(value="", name="FILE:STATUS", read_only=True, dtype=str)
+    num_captured = pvproperty(value=0, name="FILE:NUM_CAPTURED", read_only=True, dtype=int)
 
     # Status and info
     connection_status = pvproperty(value=0, name="SYS:CONNECTED", read_only=True)
@@ -507,6 +513,15 @@ class DetectorIOC(PVGroup):
         }
         self._param_names_to_pvs = {v: k for k, v in self._pvs_to_param_names.items()}
 
+    async def _write_image_to_file(self) -> None:
+        """Write image to file."""
+        if not self._file_handle:
+            return
+        data = await self.tcp_client.read_data()
+        if data:
+            self._file_handle.write(str(data))
+            self._file_handle.flush()
+
     @file_capture.putter
     async def file_capture(self, instance: PvpropertyData, value: bool) -> bool:
         """Start or stop file capture."""
@@ -528,12 +543,28 @@ class DetectorIOC(PVGroup):
             await self.file_status.write(f"File capture started, writing to {full_file_path}")
         else:
             if self._file_handle:
+                self._file_handle.flush()
                 self._file_handle.close()
                 self._file_handle = None
+                await self.num_captured.write(0)
                 await self.file_status.write(f"File capture stopped, wrote to {full_file_path}")
             else:
                 await self.last_error.write("No file capture in progress")
         return value
+
+    @act_scans.scan(period=0.001)
+    async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
+        """Scan for acutal number of scans completed."""
+        if self.acquisition_status.value == 1 and self.file_capture.value:
+            num_captured = self.num_captured.value
+            response = await self.tcp_client.get_parameter(self._pvs_to_param_names[self.act_scans])
+            if response and "values" in response:
+                value = response["values"][0]["value"]
+                if value > num_captured:
+                    self._write_image_to_file()
+                    await self.num_captured.write(value)
+            else:
+                print(f"Failed to get actual number of scans, got: {response}")
 
     @sync.scan(period=0.1, use_scan_field=True)
     async def sync(self, instance: PvpropertyData, async_lib: Any) -> Any:
