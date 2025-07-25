@@ -11,7 +11,7 @@ import socket
 import time
 from pathlib import Path
 from textwrap import dedent
-from typing import Any, cast
+from typing import Any, cast, Literal
 
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyData
 from caproto import ChannelType
@@ -523,9 +523,9 @@ class DetectorIOC(PVGroup):
             self._file_handle.flush()
 
     @file_capture.putter
-    async def file_capture(self, instance: PvpropertyData, value: bool) -> bool:
+    async def file_capture(self, instance: PvpropertyData, value: Literal["ON", "OFF"]) -> bool:
         """Start or stop file capture."""
-        if value:
+        if value == "ON":
             # TODO: Construct nexus file format here?
             if self._file_handle:
                 print("File capture already in progress")
@@ -561,7 +561,7 @@ class DetectorIOC(PVGroup):
             if response and "values" in response:
                 value = response["values"][0]["value"]
                 if value > num_captured:
-                    self._write_image_to_file()
+                    await self._write_image_to_file()
                     await self.num_captured.write(value)
             else:
                 print(f"Failed to get actual number of scans, got: {response}")
