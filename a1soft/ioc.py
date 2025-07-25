@@ -563,16 +563,16 @@ class DetectorIOC(PVGroup):
             if not filename or not filename.endswith(".nxs"):
                 print(f"File name must be set and end with .nxs, got: {filename}")
                 return False
-            full_file_path = Path(file_path) / filename
-            self._file_handle = open(full_file_path, "a")
-            await self.file_status.write(f"File capture started, writing to {full_file_path}")
+            self._full_file_path = Path(file_path) / filename
+            self._file_handle = open(self._full_file_path, "a")
+            await self.file_status.write(f"File capture started, writing to {self._full_file_path}")
         else:
             if self._file_handle:
                 self._file_handle.flush()
                 self._file_handle.close()
                 self._file_handle = None
                 await self.num_captured.write(0)
-                await self.file_status.write(f"File capture stopped, wrote to {full_file_path}")
+                await self.file_status.write(f"File capture stopped, wrote to {self._full_file_path}")
             else:
                 print("No file capture in progress")
         return value
