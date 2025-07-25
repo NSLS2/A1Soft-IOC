@@ -531,11 +531,11 @@ class DetectorIOC(PVGroup):
             if self._file_handle:
                 await self.last_error.write("File capture already in progress")
                 return False
-            file_path = await self.file_path.get()
+            file_path = await self.file_path.value
             if not file_path:
                 await self.last_error.write(f"File path not set, got: {file_path}")
                 return False
-            filename = await self.file_name.get()
+            filename = await self.file_name.value
             if not filename or not filename.endswith(".nxs"):
                 await self.last_error.write(f"File name must be set and end with .nxs, got: {filename}")
                 return False
