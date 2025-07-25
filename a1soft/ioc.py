@@ -340,14 +340,14 @@ class DetectorIOC(PVGroup):
 
     # File writing
     file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
-    file_name = pvproperty(value="", name="FILE:NAME", dtype=str)
-    file_path = pvproperty(value="", name="FILE:PATH", dtype=str)
-    file_status = pvproperty(value="", name="FILE:STATUS", read_only=True, dtype=str)
+    file_name = pvproperty(value="", name="FILE:NAME", dtype=ChannelType.STRING)
+    file_path = pvproperty(value="", name="FILE:PATH", dtype=ChannelType.STRING)
+    file_status = pvproperty(value="", name="FILE:STATUS", read_only=True, dtype=ChannelType.STRING)
     num_captured = pvproperty(value=0, name="FILE:NUM_CAPTURED", read_only=True, dtype=int)
 
     # Status and info
     connection_status = pvproperty(value=0, name="SYS:CONNECTED", read_only=True)
-    last_sync = pvproperty(value="", name="SYS:LAST_SYNC", read_only=True, dtype=str)
+    last_sync = pvproperty(value="", name="SYS:LAST_SYNC", read_only=True, dtype=ChannelType.STRING)
     sync = pvproperty(
         value="ON",
         name="SYS:SYNC",
@@ -358,7 +358,7 @@ class DetectorIOC(PVGroup):
     """Enable/disable automatic parameter synchronization, set interval via SYS:SYNC.SCAN"""
 
     # Detector parameters
-    state = pvproperty(name="STATE", dtype=str, read_only=True)
+    state = pvproperty(name="STATE", dtype=ChannelType.STRING, read_only=True)
     endX = pvproperty(put=_param_write, name="ENDX", dtype=int)
     startY = pvproperty(put=_param_write, name="STARTY", dtype=int)
     num_slice = pvproperty(put=_param_write, name="NUM_SLICE", dtype=int)
@@ -419,11 +419,11 @@ class DetectorIOC(PVGroup):
     spin = pvproperty(
         put=_param_write, name="SPIN", enum_strings=("FALSE", "TRUE"), dtype=bool
     )
-    reg_name = pvproperty(put=_param_write, name="REG_NAME", dtype=str)
-    name_string = pvproperty(put=_param_write, name="NAME_STRING", dtype=str)
-    generated_name = pvproperty(put=_param_write, name="GENERATED_NAME", dtype=str)
-    comment1 = pvproperty(put=_param_write, name="COMMENT1", dtype=str)
-    start_time = pvproperty(put=_param_write, name="START_TIME", dtype=str)
+    reg_name = pvproperty(put=_param_write, name="REG_NAME", dtype=ChannelType.STRING)
+    name_string = pvproperty(put=_param_write, name="NAME_STRING", dtype=ChannelType.STRING)
+    generated_name = pvproperty(put=_param_write, name="GENERATED_NAME", dtype=ChannelType.STRING)
+    comment1 = pvproperty(put=_param_write, name="COMMENT1", dtype=ChannelType.STRING)
+    start_time = pvproperty(put=_param_write, name="START_TIME", dtype=ChannelType.STRING)
     discr = pvproperty(put=_param_write, name="DISCR", dtype=int)
     adc_mask = pvproperty(put=_param_write, name="ADC_MASK", dtype=int)
     adc_offset = pvproperty(put=_param_write, name="ADC_OFFSET", dtype=int)
@@ -437,13 +437,13 @@ class DetectorIOC(PVGroup):
     yscale_mult = pvproperty(put=_param_write, name="YSCALE_MULT", dtype=float)
     yscale_max = pvproperty(put=_param_write, name="YSCALE_MAX", dtype=float)
     yscale_min = pvproperty(put=_param_write, name="YSCALE_MIN", dtype=float)
-    yscale_name = pvproperty(put=_param_write, name="YSCALE_NAME", dtype=str)
+    yscale_name = pvproperty(put=_param_write, name="YSCALE_NAME", dtype=ChannelType.STRING)
     xscale_mult = pvproperty(put=_param_write, name="XSCALE_MULT", dtype=float)
     xscale_max = pvproperty(put=_param_write, name="XSCALE_MAX", dtype=float)
     xscale_min = pvproperty(put=_param_write, name="XSCALE_MIN", dtype=float)
-    xscale_name = pvproperty(put=_param_write, name="XSCALE_NAME", dtype=str)
-    psu_mode = pvproperty(put=_param_write, name="PSU_MODE", dtype=str)
-    over_r_arr = pvproperty(put=_param_write, name="OVER_R_ARR", dtype=str)
+    xscale_name = pvproperty(put=_param_write, name="XSCALE_NAME", dtype=ChannelType.STRING)
+    psu_mode = pvproperty(put=_param_write, name="PSU_MODE", dtype=ChannelType.STRING)
+    over_r_arr = pvproperty(put=_param_write, name="OVER_R_ARR", dtype=ChannelType.STRING)
     over_range = pvproperty(put=_param_write, name="OVER_RANGE", dtype=int)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
