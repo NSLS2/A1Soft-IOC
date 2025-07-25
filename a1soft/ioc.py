@@ -451,6 +451,8 @@ class DetectorIOC(PVGroup):
         self.tcp_client: DetectorTCPClient = DetectorTCPClient()
         self._sync_task: asyncio.Task | None = None
         self._update_listener_task: asyncio.Task | None = None
+        self._file_writer_task: asyncio.Task | None = None
+        self._image_queue: asyncio.Queue = asyncio.Queue(maxsize=100)  # Buffer up to 100 images
         self._pvs_to_param_names: dict[PvpropertyData, str] = {
             self.state: "state",
             self.endX: "endX",
@@ -532,20 +534,54 @@ class DetectorIOC(PVGroup):
 
         return None
 
+    async def _background_file_writer(self) -> None:
+        """Background task that continuously writes image data from queue to file."""
+        while True:
+            try:
+                # Wait for data from the queue
+                data = await self._image_queue.get()
+                
+                # Check for shutdown signal (None is used as sentinel)
+                if data is None:
+                    break
+                    
+                if self._file_handle:
+                    # Hack to recover the current frame from the sum of the scans so far
+                    # This is needed because the current frame is already reset to all zeros
+                    # when the act_scans parameter is incremented...
+                    current_frame = data["channel_2_data"] - self._last_array if self._last_array is not None else data["channel_2_data"]
+                    data["channel_1_data"] = current_frame
+                    self._last_array = data["channel_2_data"]
+                    
+                    # Write to file (this is the potentially blocking operation)
+                    self._file_handle.write(str(data))
+                    self._file_handle.flush()
+                    
+                # Mark the task as done
+                self._image_queue.task_done()
+                
+            except asyncio.CancelledError:
+                # Handle graceful shutdown
+                break
+            except Exception as e:
+                print(f"Error in background file writer: {e}")
+                # Mark the task as done even on error
+                self._image_queue.task_done()
+
     async def _write_image_to_file(self) -> None:
-        """Write image to file."""
+        """Request image and queue it for writing."""
         if not self._file_handle:
             return
+            
         data = await self._get_current_frame()
         if data:
-            # Hack to recover the current frame from the sum of the scans so far
-            # This is needed because the current frame is already reset to all zeros
-            # when the act_scans parameter is incremented...
-            current_frame = data["channel_2_data"] - self._last_array if self._last_array is not None else data["channel_2_data"]
-            data["channel_1_data"] = current_frame
-            self._last_array = data["channel_2_data"]
-            self._file_handle.write(str(data))
-            self._file_handle.flush()
+            try:
+                # Put data in queue without blocking (will raise QueueFull if full)
+                self._image_queue.put_nowait(data)
+            except asyncio.QueueFull:
+                print("Image queue is full, dropping frame")
+        else:
+            print("Failed to get current frame for file writing")
 
     @file_capture.putter
     async def file_capture(self, instance: PvpropertyData, value: Literal["On", "Off"]) -> bool:
@@ -565,14 +601,42 @@ class DetectorIOC(PVGroup):
                 return False
             self._full_file_path = Path(file_path) / filename
             self._file_handle = open(self._full_file_path, "a")
+            
+            # Create fresh queue for this capture session
+            self._image_queue = asyncio.Queue(maxsize=100)
+            
+            # Start background file writer task
+            self._file_writer_task = asyncio.create_task(self._background_file_writer())
+            
             await self.file_status.write(f"File capture started, writing to {self._full_file_path}")
         else:
+            # Stop background writer task
+            if self._file_writer_task:
+                # Send shutdown signal to background writer
+                await self._image_queue.put(None)
+                # Wait for the writer task to finish
+                try:
+                    await asyncio.wait_for(self._file_writer_task, timeout=5.0)
+                except asyncio.TimeoutError:
+                    print("Warning: File writer task did not shutdown cleanly")
+                    self._file_writer_task.cancel()
+                self._file_writer_task = None
+                
             if self._file_handle:
                 self._file_handle.flush()
                 self._file_handle.close()
                 self._file_handle = None
                 self._full_file_path = None
                 self._last_array = None
+                
+                # Clear any remaining items in queue
+                while not self._image_queue.empty():
+                    try:
+                        self._image_queue.get_nowait()
+                        self._image_queue.task_done()
+                    except asyncio.QueueEmpty:
+                        break
+                        
                 await self.file_status.write(f"File capture stopped, wrote to {self._full_file_path}")
             else:
                 print("No file capture in progress")
@@ -602,8 +666,8 @@ class DetectorIOC(PVGroup):
             response = await self.tcp_client.get_parameter(self._pvs_to_param_names[self.state])
             if response and "values" in response:
                 value = response["values"][0]["value"]
-                if value != instance.value:
-                    await async_lib.library.gather(self.acquire.write(0), self.acquisition_status.write(0), self.state.write(value))
+                if value == "STANDBY" and value != instance.value:
+                    await async_lib.library.gather(self.acquire.write(0), self.state.write(value))
             else:
                 print(f"Failed to get state update, got: {response}")
 
@@ -761,6 +825,17 @@ class DetectorIOC(PVGroup):
             self._sync_task.cancel()
         if self._update_listener_task:
             self._update_listener_task.cancel()
+        if self._file_writer_task:
+            # Send shutdown signal and wait for graceful shutdown
+            try:
+                await self._image_queue.put(None)
+                await asyncio.wait_for(self._file_writer_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                print("Warning: File writer task did not shutdown cleanly during cleanup")
+                self._file_writer_task.cancel()
+            except Exception as e:
+                print(f"Error during file writer cleanup: {e}")
+                self._file_writer_task.cancel()
         await self.tcp_client.disconnect()
         print("Cleanup completed")
 
