@@ -36,7 +36,7 @@ class DetectorTCPClient:
         self.live_socket: socket.socket | None = None
         self.connected: bool = False
         self._json_lock: asyncio.Lock = asyncio.Lock()
-        self._file_capture_lock: asyncio.Lock = asyncio.Lock()
+        self._data_lock: asyncio.Lock = asyncio.Lock()
 
     async def connect(self) -> None:
         """Connect to all three TCP ports."""
@@ -147,7 +147,7 @@ class DetectorTCPClient:
         if not self.connected or not self.data_socket:
             return None
 
-        async with self._file_capture_lock:
+        async with self._data_lock:
             try:
                 loop = asyncio.get_event_loop()
                 
@@ -512,6 +512,25 @@ class DetectorIOC(PVGroup):
         }
         self._param_names_to_pvs = {v: k for k, v in self._pvs_to_param_names.items()}
         self._file_handle: Any | None = None
+        self._full_file_path: Path | None = None
+        self._last_array: np.ndarray | None = None
+
+    async def _get_current_frame(self) -> dict[str, Any]| None:
+        response: dict[str, Any] | None = await self.tcp_client.send_command(
+            "ACTION", action="GET_IMAGE"
+        )
+        if response:
+            print("Image requested")
+            data = await self.tcp_client.read_data()
+            if data:
+                print(f"Image received: {data}")
+                return data
+            else:
+                print("Failed to read image")
+        else:
+            print("Failed to request image")
+
+        return None
 
     async def _write_image_to_file(self) -> None:
         """Write image to file."""
@@ -519,13 +538,19 @@ class DetectorIOC(PVGroup):
             return
         data = await self.tcp_client.read_data()
         if data:
+            # Hack to recover the current frame from the sum of the scans so far
+            # This is needed because the current frame is already reset to all zeros
+            # when the act_scans parameter is incremented...
+            current_frame = data["channel_2"] - self._last_array
+            data["channel_1"] = current_frame
+            self._last_array = data["channel_2"]
             self._file_handle.write(str(data))
             self._file_handle.flush()
 
     @file_capture.putter
-    async def file_capture(self, instance: PvpropertyData, value: Literal["ON", "OFF"]) -> bool:
+    async def file_capture(self, instance: PvpropertyData, value: Literal["On", "Off"]) -> bool:
         """Start or stop file capture."""
-        if value == "ON":
+        if value == "On":
             # TODO: Construct nexus file format here?
             if self._file_handle:
                 print("File capture already in progress")
@@ -555,7 +580,7 @@ class DetectorIOC(PVGroup):
     @act_scans.scan(period=0.001)
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for acutal number of scans completed."""
-        if self.acquisition_status.value == 1 and self.file_capture.value:
+        if self.acquisition_status.value == 1 and self.file_capture.value == "On":
             num_captured = self.num_captured.value
             response = await self.tcp_client.get_parameter(self._pvs_to_param_names[self.act_scans])
             if response and "values" in response:
@@ -694,18 +719,11 @@ class DetectorIOC(PVGroup):
     async def get_image(self, instance: Any, value: int) -> int:
         """Request an image from detector."""
         if value == 1:
-            response: dict[str, Any] | None = await self.tcp_client.send_command(
-                "ACTION", action="GET_IMAGE"
-            )
-            if response:
-                print("Image requested")
-                data = await self.tcp_client.read_data()
-                if data:
-                    print(f"Image received: {data}")
-                else:
-                    print("Failed to read image")
+            data = await self._get_current_frame()
+            if data:
+                print(f"Image received: {data}")
             else:
-                print("Failed to request image")
+                print("Failed to get image")
         return value
 
     @get_stats.putter
