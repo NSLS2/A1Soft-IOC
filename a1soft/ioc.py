@@ -753,6 +753,11 @@ class DetectorIOC(PVGroup):
             )
             if response:
                 await self.acquisition_status.write(1)
+                # Reset file writing state for new acquisition
+                if self.file_capture.value == "On":
+                    self._last_array = None
+                    await self.num_captured.write(0)
+                    logger.info("Reset file writing state for new acquisition")
             else:
                 logger.error("Failed to start acquisition")
                 return 0
