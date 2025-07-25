@@ -9,12 +9,13 @@ import json
 import random
 import socket
 import time
+from pathlib import Path
 from textwrap import dedent
 from typing import Any, cast
 
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyData
 from caproto import ChannelType
-
+import numpy as np
 
 class DetectorTCPClient:
     """TCP client to communicate with LabView detector system."""
@@ -35,6 +36,7 @@ class DetectorTCPClient:
         self.live_socket: socket.socket | None = None
         self.connected: bool = False
         self._json_lock: asyncio.Lock = asyncio.Lock()
+        self._file_capture_lock: asyncio.Lock = asyncio.Lock()
 
     async def connect(self) -> None:
         """Connect to all three TCP ports."""
@@ -132,6 +134,148 @@ class DetectorTCPClient:
                 print(f"Command failed: {e}")
                 return None
 
+    async def read_data(self) -> dict[str, Any] | None:
+        """Read image data from detector data socket.
+        
+        Returns dict with parsed header info and pixel data, or None on error/timeout.
+        """
+        if not self.connected or not self.data_socket:
+            return None
+
+        async with self._file_capture_lock:
+            try:
+                loop = asyncio.get_event_loop()
+                
+                # Read 40-byte header
+                header_data = b""
+                while len(header_data) < 40:
+                    try:
+                        chunk = await asyncio.wait_for(
+                            loop.sock_recv(self.data_socket, 40 - len(header_data)), 
+                            timeout=5.0
+                        )
+                        if not chunk:
+                            raise ConnectionError("Socket closed while reading header")
+                        header_data += chunk
+                    except asyncio.TimeoutError:
+                        print("Timeout reading data header")
+                        return None
+                
+                # Parse header
+                marker = int.from_bytes(header_data[0:4], byteorder="big", signed=False)
+                
+                if marker != 0xf0f0:
+                    print(f"ERROR: Invalid marker={marker:#x}, expected 0xf0f0")
+                    return None
+                    
+                index = int.from_bytes(header_data[4:8], byteorder="big", signed=True)
+                state = int.from_bytes(header_data[8:12], byteorder="big", signed=False)
+                reserved = int.from_bytes(header_data[12:16], byteorder="big", signed=False)
+                width = int.from_bytes(header_data[16:20], byteorder="big", signed=False)
+                height = int.from_bytes(header_data[20:24], byteorder="big", signed=False)
+                length = int.from_bytes(header_data[24:28], byteorder="big", signed=False)
+                cur_width = int.from_bytes(header_data[28:32], byteorder="big", signed=False)
+                cur_height = int.from_bytes(header_data[32:36], byteorder="big", signed=False)
+                cur_length = int.from_bytes(header_data[36:40], byteorder="big", signed=False)
+                
+                result = {
+                    "index": index,
+                    "state": state,
+                    "reserved": reserved,
+                    "width": width,
+                    "height": height,
+                    "length": length,
+                    "cur_width": cur_width, 
+                    "cur_height": cur_height,
+                    "cur_length": cur_length,
+                    "channel_1_data": None,
+                    "channel_2_data": None,
+                    "channel_1_sum": 0,
+                    "channel_2_sum": 0
+                }
+                
+                print(f"Data header - index: {index}, state: {state}, "
+                    f"dimensions: {height}x{width}, length: {length}")
+                
+                # Read first data channel if length > 0
+                if length > 0:
+                    channel_1_data = await self._read_channel_data(length, timeout=10.0)
+                    if channel_1_data is None:
+                        return None
+                        
+                    # Parse pixel data from bytes to integers
+                    pixel_data_1 = []
+                    sum_1 = 0
+                    for i in range(length // 4):
+                        pixel = int.from_bytes(
+                            channel_1_data[i * 4:(i * 4) + 4],
+                            byteorder="little",
+                            signed=False
+                        )
+                        pixel_data_1.append(pixel)
+                        sum_1 += pixel
+                        
+                    result["channel_1_data"] = np.reshape(pixel_data_1, (cur_height, cur_width))
+                    result["channel_1_sum"] = sum_1
+                    print(f"Channel 1 sum: {sum_1}")
+                
+                # Read second data channel if cur_length > 0  
+                if cur_length > 0:
+                    channel_2_data = await self._read_channel_data(cur_length, timeout=10.0)
+                    if channel_2_data is None:
+                        return None
+                        
+                    # Parse pixel data from bytes to integers
+                    pixel_data_2 = []
+                    sum_2 = 0
+                    for i in range(cur_length // 4):
+                        pixel = int.from_bytes(
+                            channel_2_data[i * 4:(i * 4) + 4],
+                            byteorder="little", 
+                            signed=False
+                        )
+                        pixel_data_2.append(pixel)
+                        sum_2 += pixel
+                        
+                    result["channel_2_data"] = np.reshape(pixel_data_2, (cur_height, cur_width))
+                    result["channel_2_sum"] = sum_2
+                    print(f"Channel 2 sum: {sum_2}")
+                    
+                return result
+                
+            except Exception as e:
+                print(f"Error reading data: {e}")
+                return None
+    
+    async def _read_channel_data(self, expected_length: int, timeout: float = 10.0) -> bytes | None:
+        """Helper method to read a complete data channel with timeout."""
+        if not self.data_socket:
+            return None
+            
+        try:
+            loop = asyncio.get_event_loop()
+            data = b""
+            
+            while len(data) < expected_length:
+                remaining = expected_length - len(data)
+                try:
+                    chunk = await asyncio.wait_for(
+                        loop.sock_recv(self.data_socket, remaining),
+                        timeout=timeout
+                    )
+                    if not chunk:
+                        raise ConnectionError("Socket closed while reading channel data")
+                    data += chunk
+                except asyncio.TimeoutError:
+                    print(f"Timeout reading channel data, got {len(data)}/{expected_length} bytes")
+                    return None
+                    
+            return data
+            
+        except Exception as e:
+            print(f"Error reading channel data: {e}")
+            return None
+
     async def get_all_parameters(self) -> dict[str, Any] | None:
         """Get all parameters from detector."""
         return await self.send_command("GET", parameter="*")
@@ -188,6 +332,12 @@ class DetectorIOC(PVGroup):
     # Image acquisition
     get_image = pvproperty(value=0, name="IMG:GET")
     get_stats = pvproperty(value=0, name="ACQ:STATS")
+
+    # File writing
+    file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
+    file_name = pvproperty(value="", name="FILE:NAME", dtype=str)
+    file_path = pvproperty(value="", name="FILE:PATH", dtype=str)
+    file_status = pvproperty(value="", name="FILE:STATUS", read_only=True, dtype=str)
 
     # Status and info
     connection_status = pvproperty(value=0, name="SYS:CONNECTED", read_only=True)
@@ -357,6 +507,34 @@ class DetectorIOC(PVGroup):
         }
         self._param_names_to_pvs = {v: k for k, v in self._pvs_to_param_names.items()}
 
+    @file_capture.putter
+    async def file_capture(self, instance: PvpropertyData, value: bool) -> bool:
+        """Start or stop file capture."""
+        if value:
+            # TODO: Construct nexus file format here?
+            if self._file_handle:
+                await self.last_error.write("File capture already in progress")
+                return False
+            file_path = await self.file_path.get()
+            if not file_path:
+                await self.last_error.write(f"File path not set, got: {file_path}")
+                return False
+            filename = await self.file_name.get()
+            if not filename or not filename.endswith(".nxs"):
+                await self.last_error.write(f"File name must be set and end with .nxs, got: {filename}")
+                return False
+            full_file_path = Path(file_path) / filename
+            self._file_handle = open(full_file_path, "a")
+            await self.file_status.write(f"File capture started, writing to {full_file_path}")
+        else:
+            if self._file_handle:
+                self._file_handle.close()
+                self._file_handle = None
+                await self.file_status.write(f"File capture stopped, wrote to {full_file_path}")
+            else:
+                await self.last_error.write("No file capture in progress")
+        return value
+
     @sync.scan(period=0.1, use_scan_field=True)
     async def sync(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Synchronize parameters with detector."""
@@ -411,17 +589,22 @@ class DetectorIOC(PVGroup):
     @acquire.putter
     async def acquire(self, instance: Any, value: int) -> int:
         """Start acquisition when PV is written to."""
-        # TODO: Handle if state is not idle
         if value > 0:
+            if instance.value > 0:
+                await self.last_error.write("Acquisition already in progress")
+                return instance.value
             response: dict[str, Any] | None = await self.tcp_client.send_command(
                 "ACTION", action="START"
             )
             if response:
                 await self.acquisition_status.write(1)
-                await self.last_error.write("Acquisition started")
             else:
                 await self.last_error.write("Failed to start acquisition")
+                return 0
         else:
+            if instance.value == 0:
+                await self.last_error.write("Acquisition not in progress")
+                return 0
             response: dict[str, Any] | None = await self.tcp_client.send_command(
                 "ACTION", action="STOP"
             )
@@ -430,6 +613,7 @@ class DetectorIOC(PVGroup):
                 await self.last_error.write("Acquisition stopped")
             else:
                 await self.last_error.write("Failed to stop acquisition")
+                return self.acquire.value
 
         return value
 
@@ -484,6 +668,11 @@ class DetectorIOC(PVGroup):
             )
             if response:
                 await self.last_error.write("Image requested")
+                data = await self.tcp_client.read_data()
+                if data:
+                    await self.last_error.write(f"Image received: {data}")
+                else:
+                    await self.last_error.write("Failed to read image")
             else:
                 await self.last_error.write("Failed to request image")
         return value
