@@ -7,13 +7,13 @@ Exposes EPICS PVs that control acquisition, parameters, and monitoring.
 import asyncio
 import json
 import logging
-import random
-import socket
 import time
 from pathlib import Path
 from textwrap import dedent
+from turtle import width
 from typing import Any, cast, Literal
 
+from nexusformat.nexus import NXdata, NXfield, NXroot, NXentry, nxopen
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyData
 from caproto import ChannelType
 import numpy as np
@@ -22,7 +22,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class DetectorTCPClient:
-    """TCP client to communicate with LabView detector system."""
+    """TCP client to communicate with LabView detector system using asyncio streams."""
 
     def __init__(
         self,
@@ -35,46 +35,200 @@ class DetectorTCPClient:
         self.json_port: int = json_port
         self.data_port: int = data_port
         self.live_port: int = live_port
-        self.json_socket: socket.socket | None = None
-        self.data_socket: socket.socket | None = None
-        self.live_socket: socket.socket | None = None
+        
+        # StreamReader/StreamWriter pairs for each connection
+        self.json_reader: asyncio.StreamReader | None = None
+        self.json_writer: asyncio.StreamWriter | None = None
+        self.data_reader: asyncio.StreamReader | None = None
+        self.data_writer: asyncio.StreamWriter | None = None
+        self.live_reader: asyncio.StreamReader | None = None
+        self.live_writer: asyncio.StreamWriter | None = None
+        
         self.connected: bool = False
         self._json_lock: asyncio.Lock = asyncio.Lock()
         self._data_lock: asyncio.Lock = asyncio.Lock()
+        
+        # Response handling infrastructure
+        self._response_reader_task: asyncio.Task | None = None
+        self._pending_responses: dict[int, asyncio.Future] = {}
+        self._response_reader_running: bool = False
+        self._data_reader_task: asyncio.Task | None = None
+        self._data_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
+        self._data_reader_running: bool = False
+        self._current_cmd_id = 0
+
+    @property
+    def _cmd_id(self) -> int:
+        return self._current_cmd_id
+
+    @_cmd_id.setter
+    def _cmd_id(self, value: int) -> None:
+        if value > 100000:
+            self._current_cmd_id = 0
+        else:
+            self._current_cmd_id = value
+
+    async def get_data(self) -> dict[str, Any] | None:
+        """Get data from the data queue."""
+        return await self._data_queue.get()
 
     async def connect(self) -> None:
-        """Connect to all three TCP ports."""
+        """Connect to all three TCP ports using asyncio streams."""
         try:
-            self.json_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.json_socket.setblocking(False)  # Make socket non-blocking
-            await asyncio.get_event_loop().sock_connect(
-                self.json_socket, (self.host, self.json_port)
+            # Connect to JSON port
+            self.json_reader, self.json_writer = await asyncio.open_connection(
+                self.host, self.json_port
             )
 
-            self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.data_socket.setblocking(False)  # Make socket non-blocking
-            await asyncio.get_event_loop().sock_connect(
-                self.data_socket, (self.host, self.data_port)
+            # Connect to data port
+            self.data_reader, self.data_writer = await asyncio.open_connection(
+                self.host, self.data_port
             )
 
-            self.live_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.live_socket.setblocking(False)  # Make socket non-blocking
-            await asyncio.get_event_loop().sock_connect(
-                self.live_socket, (self.host, self.live_port)
+            # Connect to live port
+            self.live_reader, self.live_writer = await asyncio.open_connection(
+                self.host, self.live_port
             )
 
             self.connected = True
-            logger.info("Connected to detector TCP interface")
+            
+            # Start background response reader
+            self._response_reader_running = True
+            self._response_reader_task = asyncio.create_task(self._response_reader_loop())
+
+            # Start background data reader
+            self._data_reader_running = True
+            self._data_reader_task = asyncio.create_task(self._data_reader_loop())
+            
+            logger.info("Connected to detector TCP interface using asyncio streams")
         except Exception as e:
             logger.error(f"Failed to connect to detector: {e}")
+            await self._cleanup_connections()
             self.connected = False
 
+    async def _cleanup_connections(self) -> None:
+        """Helper to close all stream connections."""
+        for writer in [self.json_writer, self.data_writer, self.live_writer]:
+            if writer:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception as e:
+                    logger.debug(f"Error closing writer: {e}")
+        
+        self.json_reader = self.json_writer = None
+        self.data_reader = self.data_writer = None
+        self.live_reader = self.live_writer = None
+
     async def disconnect(self) -> None:
-        """Disconnect from all sockets."""
-        for sock in [self.json_socket, self.data_socket, self.live_socket]:
-            if sock:
-                sock.close()
+        """Disconnect from all streams."""
+        # Stop response reader
+        self._response_reader_running = False
+        if self._response_reader_task:
+            self._response_reader_task.cancel()
+            try:
+                await self._response_reader_task
+            except asyncio.CancelledError:
+                pass
+            self._response_reader_task = None
+        
+        # Clean up pending responses
+        for future in self._pending_responses.values():
+            if not future.done():
+                future.cancel()
+        self._pending_responses.clear()
+        
+        # Close all connections
+        await self._cleanup_connections()
         self.connected = False
+
+    async def _response_reader_loop(self) -> None:
+        """Background task that waits for signals and then reads responses."""
+        logger.info("Starting event-driven response reader")
+        
+        while self._response_reader_running and self.connected:
+            try:
+                if not self.json_reader:
+                    break
+                
+                response = await self._read_response()
+                if response is None:
+                    continue
+                    
+                # Extract command ID from response
+                cmd_id = response.get('id')
+                if cmd_id is not None:
+                    # Route response to waiting task
+                    future = self._pending_responses.pop(cmd_id, None)
+                    if future and not future.done():
+                        future.set_result(response)
+                    else:
+                        logger.debug(f"Received response for unknown/expired command ID {cmd_id}")
+                else:
+                    logger.warning(f"Received response without ID: {response}")
+                    
+            except asyncio.CancelledError:
+                logger.info("Response reader cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in response reader: {e}")
+                await asyncio.sleep(0.1)  # Brief delay before retrying
+                
+        logger.info("Event-driven response reader stopped")
+
+    async def _data_reader_loop(self) -> None:
+        logger.info("Starting data reader loop")
+        while self._data_reader_running and self.connected:
+            try:
+                if not self.data_reader:
+                    break
+
+                response = await self._read_data()
+                if response is None:
+                    continue
+
+                self._data_queue.put_nowait(response)
+            except asyncio.CancelledError:
+                logger.info("Data reader loop cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in data reader loop: {e}")
+                await asyncio.sleep(0.1)
+
+        logger.info("Data reader loop stopped")
+
+    async def _read_response(self) -> dict[str, Any] | None:
+        """Read response from JSON stream using asyncio streams."""
+        if not self.json_reader:
+            return None
+            
+        try:
+            # Blocking read until \r\n terminator
+            response_data = await self.json_reader.readuntil(b'\r\n')
+            
+            # Remove the terminator and decode
+            response_bytes = response_data.rstrip(b'\r\n')
+            
+            try:
+                response = response_bytes.decode('utf-8')
+                parsed_response = json.loads(response.replace("\\", "/"))
+                return parsed_response
+            except (UnicodeDecodeError, json.JSONDecodeError) as e:
+                logger.error(f"Failed to parse response: {e}, response: {response_bytes[:100]}...")
+                return None
+                
+        except asyncio.TimeoutError:
+            logger.warning("Timeout waiting for response data")
+            return None
+        except asyncio.CancelledError:
+            logger.info("Response reading cancelled")
+            return None
+        except asyncio.IncompleteReadError:
+            logger.error("Connection closed while reading response")
+            return None
+        except Exception as e:
+            logger.error(f"Error reading response: {e}")
+            return None
 
     async def send_command(
         self,
@@ -83,15 +237,14 @@ class DetectorTCPClient:
         action: str | None = None,
         parameter: str | None = None,
         value: str | None = None,
+        get_response: bool = True,
     ) -> dict[str, Any] | None:
-        """Send JSON command to detector."""
-        if not self.connected:
+        """Send JSON command to detector and wait for response."""
+        if not self.connected or not self.json_writer:
             return None
 
-        json_socket = cast(socket.socket, self.json_socket)
-
-        cmd_id: int = random.randrange(100)
-
+        cmd_id = self._cmd_id
+        self._cmd_id += 1
         if cmd_type == "ACTION":
             cmd = f'{{"cmd":"ACTION","id":{cmd_id},"values":"{action}"}}'
         elif cmd_type == "GET":
@@ -104,62 +257,42 @@ class DetectorTCPClient:
         else:
             return None
 
+        if get_response:
+            # Create future for response
+            response_future = asyncio.Future()
+            self._pending_responses[cmd_id] = response_future
+        
+        # Send command while holding lock, then signal response reader
         async with self._json_lock:
             try:
-                loop = asyncio.get_event_loop()
                 msg: bytes = (cmd + "\r\n").encode()
+                self.json_writer.write(msg)
+                await self.json_writer.drain()
                 
-                await loop.sock_sendall(json_socket, msg)
-
-                # Read response using asyncio-compatible operations
-                response: str = ""
-                char_ret: bool = False
-
-                
-                # Read response in larger chunks and decode only once at the end
-                buffer = b""
-                bytes_received = 0
-                
-                while True:
-                    try:
-                        # Read up to 4KB at a time instead of 1 byte
-                        chunk = await asyncio.wait_for(
-                            loop.sock_recv(json_socket, 4096), timeout=5.0
-                        )
-                        
-                        if not chunk:
-                            raise ConnectionError("Socket closed during response read")
-                        
-                        buffer += chunk
-                        bytes_received += len(chunk)
-                        
-                        # Look for \r\n terminator in the raw bytes (no decoding yet)
-                        terminator_pos = buffer.find(b'\r\n')
-                        if terminator_pos != -1:
-                            # Found complete response, extract the message part
-                            response_bytes = buffer[:terminator_pos]
-                            # Decode only once at the end
-                            response = response_bytes.decode('utf-8')
-                            break
-
-                    except asyncio.TimeoutError:
-                        logger.error("Command timeout after 5 seconds")
-                        return None
-
-                # Parse response to get size info
-                try:
-                    parsed_response = json.loads(response.replace("\\", "/"))
-                    return parsed_response
-                    
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse JSON response: {e}, response: {response[:100]}...")
-                    return None
             except Exception as e:
                 logger.error(f"Command failed: {e}")
+                # Clean up pending response
+                self._pending_responses.pop(cmd_id, None)
+                response_future.cancel()
                 return None
 
-    async def read_data(self) -> dict[str, Any] | None:
-        """Read image data from detector data socket.
+        # Return immediately if no response needed
+        if not get_response:
+            return None
+        
+        # Wait for response from background reader
+        try:
+            response = await response_future
+            return response
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout waiting for response to {cmd_type} command")
+            # Clean up pending response
+            self._pending_responses.pop(cmd_id, None)
+            response_future.cancel()
+            return None
+
+    async def _read_data(self) -> dict[str, Any] | None:
+        """Read image data from detector data stream.
         
         Returns dict with parsed header info and pixel data, or None on error/timeout.
 
@@ -168,123 +301,107 @@ class DetectorTCPClient:
         The timing on the first data channel needs to be extremely precise, because the start of the next scan will
         0 out all of the data.
         """
-        if not self.connected or not self.data_socket:
+        if not self.connected or not self.data_reader:
             return None
 
-        async with self._data_lock:
-            try:
-                loop = asyncio.get_event_loop()
+        try:
+            # Read 40-byte header
+            header_data = await self.data_reader.readexactly(40)
+            
+            # Parse header
+            marker = int.from_bytes(header_data[0:4], byteorder="big", signed=False)
+            
+            if marker != 0xf0f0:
+                logger.error(f"Invalid marker={marker:#x}, expected 0xf0f0")
+                return None
                 
-                # Read 40-byte header
-                header_data = b""
-                while len(header_data) < 40:
-                    try:
-                        chunk = await asyncio.wait_for(
-                            loop.sock_recv(self.data_socket, 40 - len(header_data)), 
-                            timeout=5.0
-                        )
-                        if not chunk:
-                            raise ConnectionError("Socket closed while reading header")
-                        header_data += chunk
-                    except asyncio.TimeoutError:
-                        logger.error("Timeout reading data header")
-                        return None
-                
-                # Parse header
-                marker = int.from_bytes(header_data[0:4], byteorder="big", signed=False)
-                
-                if marker != 0xf0f0:
-                    logger.error(f"Invalid marker={marker:#x}, expected 0xf0f0")
+            index = int.from_bytes(header_data[4:8], byteorder="big", signed=True)
+            state = int.from_bytes(header_data[8:12], byteorder="big", signed=False)
+            reserved = int.from_bytes(header_data[12:16], byteorder="big", signed=False)
+            width = int.from_bytes(header_data[16:20], byteorder="big", signed=False)
+            height = int.from_bytes(header_data[20:24], byteorder="big", signed=False)
+            length = int.from_bytes(header_data[24:28], byteorder="big", signed=False)
+            cur_width = int.from_bytes(header_data[28:32], byteorder="big", signed=False)
+            cur_height = int.from_bytes(header_data[32:36], byteorder="big", signed=False)
+            cur_length = int.from_bytes(header_data[36:40], byteorder="big", signed=False)
+            
+            result = {
+                "index": index,
+                "state": state,
+                "reserved": reserved,
+                "width": width,
+                "height": height,
+                "length": length,
+                "cur_width": cur_width, 
+                "cur_height": cur_height,
+                "cur_length": cur_length,
+                "channel_1_data": None,
+                "channel_2_data": None,
+                "channel_1_sum": 0,
+                "channel_2_sum": 0
+            }
+            
+            logger.info(f"Data header - index: {index}, state: {state}, "
+                f"dimensions: {height}x{width}, length: {length}")
+            
+            # Read first data channel if length > 0
+            if length > 0:
+                channel_1_data = await self._read_channel_data(length, timeout=10.0)
+
+                if channel_1_data is None:
                     return None
                     
-                index = int.from_bytes(header_data[4:8], byteorder="big", signed=True)
-                state = int.from_bytes(header_data[8:12], byteorder="big", signed=False)
-                reserved = int.from_bytes(header_data[12:16], byteorder="big", signed=False)
-                width = int.from_bytes(header_data[16:20], byteorder="big", signed=False)
-                height = int.from_bytes(header_data[20:24], byteorder="big", signed=False)
-                length = int.from_bytes(header_data[24:28], byteorder="big", signed=False)
-                cur_width = int.from_bytes(header_data[28:32], byteorder="big", signed=False)
-                cur_height = int.from_bytes(header_data[32:36], byteorder="big", signed=False)
-                cur_length = int.from_bytes(header_data[36:40], byteorder="big", signed=False)
+                # Use numpy to directly interpret the binary data (much faster than Python loops)
+                pixel_data_1 = np.frombuffer(channel_1_data, dtype='<u4')  # little-endian uint32
+                result["channel_1_data"] = pixel_data_1.reshape((cur_height, cur_width))
+                result["channel_1_sum"] = int(pixel_data_1.sum())
                 
-                result = {
-                    "index": index,
-                    "state": state,
-                    "reserved": reserved,
-                    "width": width,
-                    "height": height,
-                    "length": length,
-                    "cur_width": cur_width, 
-                    "cur_height": cur_height,
-                    "cur_length": cur_length,
-                    "channel_1_data": None,
-                    "channel_2_data": None,
-                    "channel_1_sum": 0,
-                    "channel_2_sum": 0
-                }
+                logger.info(f"Channel 1 sum: {result['channel_1_sum']}")
+            
+            # Read second data channel if cur_length > 0  
+            if cur_length > 0:
+                channel_2_data = await self._read_channel_data(cur_length, timeout=10.0)
                 
-                logger.info(f"Data header - index: {index}, state: {state}, "
-                    f"dimensions: {height}x{width}, length: {length}")
-                
-                # Read first data channel if length > 0
-                if length > 0:
-                    channel_1_data = await self._read_channel_data(length, timeout=10.0)
-
-                    if channel_1_data is None:
-                        return None
-                        
-                    # Use numpy to directly interpret the binary data (much faster than Python loops)
-                    pixel_data_1 = np.frombuffer(channel_1_data, dtype='<u4')  # little-endian uint32
-                    result["channel_1_data"] = pixel_data_1.reshape((cur_height, cur_width))
-                    result["channel_1_sum"] = int(pixel_data_1.sum())
+                if channel_2_data is None:
+                    return None
                     
-                    logger.info(f"Channel 1 sum: {result['channel_1_sum']}")
+                # Use numpy to directly interpret the binary data (much faster than Python loops)
+                pixel_data_2 = np.frombuffer(channel_2_data, dtype='<u4')  # little-endian uint32
+                result["channel_2_data"] = pixel_data_2.reshape((cur_height, cur_width))
+                result["channel_2_sum"] = int(pixel_data_2.sum())
                 
-                # Read second data channel if cur_length > 0  
-                if cur_length > 0:
-                    channel_2_data = await self._read_channel_data(cur_length, timeout=10.0)
-                    
-                    if channel_2_data is None:
-                        return None
-                        
-                    # Use numpy to directly interpret the binary data (much faster than Python loops)
-                    pixel_data_2 = np.frombuffer(channel_2_data, dtype='<u4')  # little-endian uint32
-                    result["channel_2_data"] = pixel_data_2.reshape((cur_height, cur_width))
-                    result["channel_2_sum"] = int(pixel_data_2.sum())
-                    
-                    logger.info(f"Channel 2 sum: {result['channel_2_sum']}")
-                    
-                return result
+                logger.info(f"Channel 2 sum: {result['channel_2_sum']}")
                 
-            except Exception as e:
-                logger.error(f"Error reading data: {e}")
-                return None
+            return result
+            
+        except asyncio.TimeoutError:
+            logger.error("Timeout reading data header")
+            return None
+        except asyncio.IncompleteReadError:
+            logger.error("Connection closed while reading data")
+            return None
+        except Exception as e:
+            logger.error(f"Error reading data: {e}")
+            return None
     
     async def _read_channel_data(self, expected_length: int, timeout: float = 10.0) -> bytes | None:
         """Helper method to read a complete data channel with timeout."""
-        if not self.data_socket:
+        if not self.data_reader:
             return None
             
         try:
-            loop = asyncio.get_event_loop()
-            data = b""
-            
-            while len(data) < expected_length:
-                remaining = expected_length - len(data)
-                try:
-                    chunk = await asyncio.wait_for(
-                        loop.sock_recv(self.data_socket, remaining),
-                        timeout=timeout
-                    )
-                    if not chunk:
-                        raise ConnectionError("Socket closed while reading channel data")
-                    data += chunk
-                except asyncio.TimeoutError:
-                    logger.error(f"Timeout reading channel data, got {len(data)}/{expected_length} bytes")
-                    return None
-                    
+            # Use readexactly to read exactly the expected number of bytes
+            data = await asyncio.wait_for(
+                self.data_reader.readexactly(expected_length), timeout=timeout
+            )
             return data
             
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout reading channel data, expected {expected_length} bytes")
+            return None
+        except asyncio.IncompleteReadError as e:
+            logger.error(f"Connection closed while reading channel data, got {len(e.partial)}/{expected_length} bytes")
+            return None
         except Exception as e:
             logger.error(f"Error reading channel data: {e}")
             return None
@@ -524,41 +641,70 @@ class DetectorIOC(PVGroup):
             self.over_range: "OverRange",
         }
         self._param_names_to_pvs = {v: k for k, v in self._pvs_to_param_names.items()}
-        self._file_handle: Any | None = None
         self._full_file_path: Path | None = None
         self._last_array: np.ndarray | None = None
         
     async def _get_current_frame(self) -> dict[str, Any]| None:
-        response: dict[str, Any] | None = await self.tcp_client.send_command(
-            "ACTION", action="GET_IMAGE"
+        await self.tcp_client.send_command(
+            "ACTION", action="GET_IMAGE", get_response=False
         )
-        
-        if response:
-            logger.info("Image requested")
-            data = await self.tcp_client.read_data()
-            
-            if data:
-                return data
-            else:
-                logger.warning("Failed to read image data")
+        data = await self.tcp_client.get_data()
+        if data:
+            return data
         else:
-            logger.warning("Failed to request image")
-
+            logger.warning("Failed to read image data")
         return None
 
     async def _background_file_writer(self) -> None:
         """Background task that continuously writes image data from queue to file."""
-        while True:
-            try:
-                # Wait for data from the queue
-                data = await self._image_queue.get()
-                
-                # Check for shutdown signal (None is used as sentinel)
-                if data is None:
-                    break
+        with nxopen(self._full_file_path, "a") as file_handle:
+            if "entry1" in file_handle:
+                entry = file_handle["entry1"]
+            else:
+                entry = NXentry(name="entry1")
+                file_handle["entry1"] = entry
+
+            if "analyzer" in entry:
+                detector = entry["analyzer"]
+            else:
+                detector = NXdata(name="analyzer")
+                entry["analyzer"] = detector
+
+            if "channel_1_data" in detector:
+                channel_1_data_field = detector["channel_1_data"]
+            else:
+                channel_1_data_field = None
+            if "channel_2_data" in detector:
+                channel_2_data_field = detector["channel_2_data"]
+            else:
+                channel_2_data_field = None
+
+            while True:
+                try:
+                    # Wait for data from the queue
+                    data = await self._image_queue.get()
                     
-                if self._file_handle:
-                    
+                    # Check for shutdown signal (None is used as sentinel)
+                    if data is None:
+                        break
+
+                    # Initialize data field with correct shapes
+                    if channel_1_data_field is None:
+                        channel_1_data_field = NXfield(name="channel_1_data",
+                            shape=(0, data["cur_height"], data["cur_width"]),
+                            dtype=np.uint32,
+                            maxshape=(None, data["cur_height"], data["cur_width"]),
+                        )
+                        detector["channel_1_data"] = channel_1_data_field
+
+                    if channel_2_data_field is None:
+                        channel_2_data_field = NXfield(name="channel_2_data",
+                            shape=(0, data["cur_height"], data["cur_width"]),
+                            dtype=np.uint32,
+                            maxshape=(None, data["cur_height"], data["cur_width"]),
+                        )
+                        detector["channel_2_data"] = channel_2_data_field
+
                     # Hack to recover the current frame from the sum of the scans so far
                     # This is needed because the current frame is already reset to all zeros
                     # when the act_scans parameter is incremented...
@@ -566,27 +712,24 @@ class DetectorIOC(PVGroup):
                     data["channel_1_data"] = current_frame
                     self._last_array = data["channel_2_data"]
                     
+                    # Write to file (expand the data field)
+                    channel_1_data_field.resize(channel_1_data_field.shape[0] + 1, axis=0)
+                    channel_1_data_field[channel_1_data_field.shape[0] - 1, :, :] = data["channel_1_data"]
+                    channel_2_data_field.resize(channel_2_data_field.shape[0] + 1, axis=0)
+                    channel_2_data_field[channel_2_data_field.shape[0] - 1, :, :] = data["channel_2_data"]
+
+                    # Mark the task as done
+                    self._image_queue.task_done()
                     
-                    # Write to file (this is the potentially blocking operation)
-                    self._file_handle.write(str(data))
-                    self._file_handle.flush()
-                    
-                # Mark the task as done
-                self._image_queue.task_done()
-                
-            except asyncio.CancelledError:
-                # Handle graceful shutdown
-                break
-            except Exception as e:
-                logger.error(f"Error in background file writer: {e}")
-                # Mark the task as done even on error
-                self._image_queue.task_done()
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.error(f"Error in background file writer: {e}")
+                    # Mark the task as done even on error
+                    self._image_queue.task_done()
 
     async def _write_image_to_file(self) -> None:
         """Request image and queue it for writing."""
-        if not self._file_handle:
-            return
-            
         data = await self._get_current_frame()
         
         if data:
@@ -603,10 +746,6 @@ class DetectorIOC(PVGroup):
     async def file_capture(self, instance: PvpropertyData, value: Literal["On", "Off"]) -> bool:
         """Start or stop file capture."""
         if value == "On":
-            # TODO: Construct nexus file format here?
-            if self._file_handle:
-                logger.warning("File capture already in progress")
-                return False
             file_path = self.file_path.value
             if not file_path:
                 logger.error(f"File path not set, got: {file_path}")
@@ -616,7 +755,6 @@ class DetectorIOC(PVGroup):
                 logger.error(f"File name must be set and end with .nxs, got: {filename}")
                 return False
             self._full_file_path = Path(file_path) / filename
-            self._file_handle = open(self._full_file_path, "a")
             await self.num_captured.write(0)
             
             # Create fresh queue for this capture session
@@ -639,24 +777,18 @@ class DetectorIOC(PVGroup):
                     self._file_writer_task.cancel()
                 self._file_writer_task = None
                 
-            if self._file_handle:
-                self._file_handle.flush()
-                self._file_handle.close()
-                self._file_handle = None
-                self._full_file_path = None
-                self._last_array = None
-                
-                # Clear any remaining items in queue
-                while not self._image_queue.empty():
-                    try:
-                        self._image_queue.get_nowait()
-                        self._image_queue.task_done()
-                    except asyncio.QueueEmpty:
-                        break
-                        
-                await self.file_status.write(f"File capture stopped, wrote to {self._full_file_path}")
-            else:
-                logger.error("No file capture in progress")
+            self._full_file_path = None
+            self._last_array = None
+            
+            # Clear any remaining items in queue
+            while not self._image_queue.empty():
+                try:
+                    self._image_queue.get_nowait()
+                    self._image_queue.task_done()
+                except asyncio.QueueEmpty:
+                    break
+                    
+            await self.file_status.write(f"File capture stopped, wrote to {self._full_file_path}")
         return value
 
     @act_scans.scan(period=0.05)  # 50ms scan instead of 1ms - still faster than detector response
@@ -673,6 +805,8 @@ class DetectorIOC(PVGroup):
                 
                 if act_scans_value > num_processed:
                     logger.info(f"New scan detected: {act_scans_value} (was {num_processed})")
+                    if act_scans_value > num_processed + 1:
+                        logger.warning(f"FRAME SKIPPED: {act_scans_value} (was {num_processed})")
                     
                     await self._write_image_to_file()
                     

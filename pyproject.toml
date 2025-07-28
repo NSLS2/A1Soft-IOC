@@ -34,6 +34,7 @@ version = "0.1.0"
 
 [tool.pixi.dependencies]
 python = ">=3.10,<3.13"
+nexusformat = "*"
 
 [tool.pixi.pypi-dependencies]
 a1soft = { path = ".", editable = true }
