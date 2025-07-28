@@ -10,8 +10,10 @@ import logging
 import time
 from pathlib import Path
 from textwrap import dedent
+from turtle import width
 from typing import Any, cast, Literal
 
+from nexusformat.nexus import NXdata, NXfield, NXroot, NXentry, nxopen
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyData
 from caproto import ChannelType
 import numpy as np
@@ -656,17 +658,40 @@ class DetectorIOC(PVGroup):
 
     async def _background_file_writer(self) -> None:
         """Background task that continuously writes image data from queue to file."""
-        while True:
-            try:
-                # Wait for data from the queue
-                data = await self._image_queue.get()
-                
-                # Check for shutdown signal (None is used as sentinel)
-                if data is None:
-                    break
+        with nxopen(self._full_file_path, "a") as file_handle:
+            entry = NXentry(name="entry1")
+            file_handle["entry1"] = entry
+
+            detector = NXdata(name="analyzer")
+            entry["analyzer"] = detector
+
+            data_field = None
+
+            while True:
+                try:
+                    # Wait for data from the queue
+                    data = await self._image_queue.get()
                     
-                if self._file_handle:
-                    
+                    # Check for shutdown signal (None is used as sentinel)
+                    if data is None:
+                        break
+
+                    # Initialize data field
+                    if data_field is None:
+                        channel_1_data_field = NXfield(name="channel_1_data",
+                            shape=(1, data["cur_height"], data["cur_width"]),
+                            dtype=np.uint8,
+                            maxshape=(None, data["cur_height"], data["cur_width"]),
+                        )
+                        detector["channel_1_data"] = channel_1_data_field
+
+                        channel_2_data_field = NXfield(name="channel_2_data",
+                            shape=(1, data["cur_height"], data["cur_width"]),
+                            dtype=np.uint8,
+                            maxshape=(None, data["cur_height"], data["cur_width"]),
+                        )
+                        detector["channel_2_data"] = channel_2_data_field
+
                     # Hack to recover the current frame from the sum of the scans so far
                     # This is needed because the current frame is already reset to all zeros
                     # when the act_scans parameter is incremented...
@@ -674,21 +699,24 @@ class DetectorIOC(PVGroup):
                     data["channel_1_data"] = current_frame
                     self._last_array = data["channel_2_data"]
                     
+                    # Write to file (expand the data field)
+                    channel_1_data_field.resize(channel_1_data_field.shape[0] + 1, axis=0)
+                    channel_1_data_field[channel_1_data_field.shape[0] - 1, :, :] = data["channel_1_data"]
+                    channel_2_data_field.resize(channel_2_data_field.shape[0] + 1, axis=0)
+                    channel_2_data_field[channel_2_data_field.shape[0] - 1, :, :] = data["channel_2_data"]
+
+                    # Flush the file to disk
+                    file_handle.flush()
+
+                    # Mark the task as done
+                    self._image_queue.task_done()
                     
-                    # Write to file (this is the potentially blocking operation)
-                    self._file_handle.write(str(data))
-                    self._file_handle.flush()
-                    
-                # Mark the task as done
-                self._image_queue.task_done()
-                
-            except asyncio.CancelledError:
-                # Handle graceful shutdown
-                break
-            except Exception as e:
-                logger.error(f"Error in background file writer: {e}")
-                # Mark the task as done even on error
-                self._image_queue.task_done()
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.error(f"Error in background file writer: {e}")
+                    # Mark the task as done even on error
+                    self._image_queue.task_done()
 
     async def _write_image_to_file(self) -> None:
         """Request image and queue it for writing."""
@@ -724,7 +752,7 @@ class DetectorIOC(PVGroup):
                 logger.error(f"File name must be set and end with .nxs, got: {filename}")
                 return False
             self._full_file_path = Path(file_path) / filename
-            self._file_handle = open(self._full_file_path, "a")
+            self._file_handle = NXroot(self._full_file_path)
             await self.num_captured.write(0)
             
             # Create fresh queue for this capture session
@@ -781,7 +809,7 @@ class DetectorIOC(PVGroup):
                 
                 if act_scans_value > num_processed:
                     logger.info(f"New scan detected: {act_scans_value} (was {num_processed})")
-                    if act_scans_value > self.num_captured.value + 1:
+                    if act_scans_value > num_processed + 1:
                         logger.warning(f"FRAME SKIPPED: {act_scans_value} (was {num_processed})")
                     
                     await self._write_image_to_file()
