@@ -50,6 +50,9 @@ class DetectorTCPClient:
         self._response_reader_task: asyncio.Task | None = None
         self._pending_responses: dict[int, asyncio.Future] = {}
         self._response_reader_running: bool = False
+        self._data_reader_task: asyncio.Task | None = None
+        self._data_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
+        self._data_reader_running: bool = False
         self._current_cmd_id = 0
 
     @property
@@ -62,6 +65,10 @@ class DetectorTCPClient:
             self._current_cmd_id = 0
         else:
             self._current_cmd_id = value
+
+    async def get_data(self) -> dict[str, Any] | None:
+        """Get data from the data queue."""
+        return await self._data_queue.get()
 
     async def connect(self) -> None:
         """Connect to all three TCP ports using asyncio streams."""
@@ -86,6 +93,10 @@ class DetectorTCPClient:
             # Start background response reader
             self._response_reader_running = True
             self._response_reader_task = asyncio.create_task(self._response_reader_loop())
+
+            # Start background data reader
+            self._data_reader_running = True
+            self._data_reader_task = asyncio.create_task(self._data_reader_loop())
             
             logger.info("Connected to detector TCP interface using asyncio streams")
         except Exception as e:
@@ -162,6 +173,27 @@ class DetectorTCPClient:
                 await asyncio.sleep(0.1)  # Brief delay before retrying
                 
         logger.info("Event-driven response reader stopped")
+
+    async def _data_reader_loop(self) -> None:
+        logger.info("Starting data reader loop")
+        while self._data_reader_running and self.connected:
+            try:
+                if not self.data_reader:
+                    break
+
+                response = await self._read_data()
+                if response is None:
+                    continue
+
+                self._data_queue.put_nowait(response)
+            except asyncio.CancelledError:
+                logger.info("Data reader loop cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in data reader loop: {e}")
+                await asyncio.sleep(0.1)
+
+        logger.info("Data reader loop stopped")
 
     async def _read_response(self) -> dict[str, Any] | None:
         """Read response from JSON stream using asyncio streams."""
@@ -257,7 +289,7 @@ class DetectorTCPClient:
             response_future.cancel()
             return None
 
-    async def read_data(self) -> dict[str, Any] | None:
+    async def _read_data(self) -> dict[str, Any] | None:
         """Read image data from detector data stream.
         
         Returns dict with parsed header info and pixel data, or None on error/timeout.
@@ -270,88 +302,87 @@ class DetectorTCPClient:
         if not self.connected or not self.data_reader:
             return None
 
-        async with self._data_lock:
-            try:
-                # Read 40-byte header
-                header_data = await asyncio.wait_for(
-                    self.data_reader.readexactly(40), timeout=5.0
-                )
+        try:
+            # Read 40-byte header
+            header_data = await asyncio.wait_for(
+                self.data_reader.readexactly(40), timeout=5.0
+            )
+            
+            # Parse header
+            marker = int.from_bytes(header_data[0:4], byteorder="big", signed=False)
+            
+            if marker != 0xf0f0:
+                logger.error(f"Invalid marker={marker:#x}, expected 0xf0f0")
+                return None
                 
-                # Parse header
-                marker = int.from_bytes(header_data[0:4], byteorder="big", signed=False)
-                
-                if marker != 0xf0f0:
-                    logger.error(f"Invalid marker={marker:#x}, expected 0xf0f0")
+            index = int.from_bytes(header_data[4:8], byteorder="big", signed=True)
+            state = int.from_bytes(header_data[8:12], byteorder="big", signed=False)
+            reserved = int.from_bytes(header_data[12:16], byteorder="big", signed=False)
+            width = int.from_bytes(header_data[16:20], byteorder="big", signed=False)
+            height = int.from_bytes(header_data[20:24], byteorder="big", signed=False)
+            length = int.from_bytes(header_data[24:28], byteorder="big", signed=False)
+            cur_width = int.from_bytes(header_data[28:32], byteorder="big", signed=False)
+            cur_height = int.from_bytes(header_data[32:36], byteorder="big", signed=False)
+            cur_length = int.from_bytes(header_data[36:40], byteorder="big", signed=False)
+            
+            result = {
+                "index": index,
+                "state": state,
+                "reserved": reserved,
+                "width": width,
+                "height": height,
+                "length": length,
+                "cur_width": cur_width, 
+                "cur_height": cur_height,
+                "cur_length": cur_length,
+                "channel_1_data": None,
+                "channel_2_data": None,
+                "channel_1_sum": 0,
+                "channel_2_sum": 0
+            }
+            
+            logger.info(f"Data header - index: {index}, state: {state}, "
+                f"dimensions: {height}x{width}, length: {length}")
+            
+            # Read first data channel if length > 0
+            if length > 0:
+                channel_1_data = await self._read_channel_data(length, timeout=10.0)
+
+                if channel_1_data is None:
                     return None
                     
-                index = int.from_bytes(header_data[4:8], byteorder="big", signed=True)
-                state = int.from_bytes(header_data[8:12], byteorder="big", signed=False)
-                reserved = int.from_bytes(header_data[12:16], byteorder="big", signed=False)
-                width = int.from_bytes(header_data[16:20], byteorder="big", signed=False)
-                height = int.from_bytes(header_data[20:24], byteorder="big", signed=False)
-                length = int.from_bytes(header_data[24:28], byteorder="big", signed=False)
-                cur_width = int.from_bytes(header_data[28:32], byteorder="big", signed=False)
-                cur_height = int.from_bytes(header_data[32:36], byteorder="big", signed=False)
-                cur_length = int.from_bytes(header_data[36:40], byteorder="big", signed=False)
+                # Use numpy to directly interpret the binary data (much faster than Python loops)
+                pixel_data_1 = np.frombuffer(channel_1_data, dtype='<u4')  # little-endian uint32
+                result["channel_1_data"] = pixel_data_1.reshape((cur_height, cur_width))
+                result["channel_1_sum"] = int(pixel_data_1.sum())
                 
-                result = {
-                    "index": index,
-                    "state": state,
-                    "reserved": reserved,
-                    "width": width,
-                    "height": height,
-                    "length": length,
-                    "cur_width": cur_width, 
-                    "cur_height": cur_height,
-                    "cur_length": cur_length,
-                    "channel_1_data": None,
-                    "channel_2_data": None,
-                    "channel_1_sum": 0,
-                    "channel_2_sum": 0
-                }
+                logger.info(f"Channel 1 sum: {result['channel_1_sum']}")
+            
+            # Read second data channel if cur_length > 0  
+            if cur_length > 0:
+                channel_2_data = await self._read_channel_data(cur_length, timeout=10.0)
                 
-                logger.info(f"Data header - index: {index}, state: {state}, "
-                    f"dimensions: {height}x{width}, length: {length}")
-                
-                # Read first data channel if length > 0
-                if length > 0:
-                    channel_1_data = await self._read_channel_data(length, timeout=10.0)
-
-                    if channel_1_data is None:
-                        return None
-                        
-                    # Use numpy to directly interpret the binary data (much faster than Python loops)
-                    pixel_data_1 = np.frombuffer(channel_1_data, dtype='<u4')  # little-endian uint32
-                    result["channel_1_data"] = pixel_data_1.reshape((cur_height, cur_width))
-                    result["channel_1_sum"] = int(pixel_data_1.sum())
+                if channel_2_data is None:
+                    return None
                     
-                    logger.info(f"Channel 1 sum: {result['channel_1_sum']}")
+                # Use numpy to directly interpret the binary data (much faster than Python loops)
+                pixel_data_2 = np.frombuffer(channel_2_data, dtype='<u4')  # little-endian uint32
+                result["channel_2_data"] = pixel_data_2.reshape((cur_height, cur_width))
+                result["channel_2_sum"] = int(pixel_data_2.sum())
                 
-                # Read second data channel if cur_length > 0  
-                if cur_length > 0:
-                    channel_2_data = await self._read_channel_data(cur_length, timeout=10.0)
-                    
-                    if channel_2_data is None:
-                        return None
-                        
-                    # Use numpy to directly interpret the binary data (much faster than Python loops)
-                    pixel_data_2 = np.frombuffer(channel_2_data, dtype='<u4')  # little-endian uint32
-                    result["channel_2_data"] = pixel_data_2.reshape((cur_height, cur_width))
-                    result["channel_2_sum"] = int(pixel_data_2.sum())
-                    
-                    logger.info(f"Channel 2 sum: {result['channel_2_sum']}")
-                    
-                return result
+                logger.info(f"Channel 2 sum: {result['channel_2_sum']}")
                 
-            except asyncio.TimeoutError:
-                logger.error("Timeout reading data header")
-                return None
-            except asyncio.IncompleteReadError:
-                logger.error("Connection closed while reading data")
-                return None
-            except Exception as e:
-                logger.error(f"Error reading data: {e}")
-                return None
+            return result
+            
+        except asyncio.TimeoutError:
+            logger.error("Timeout reading data header")
+            return None
+        except asyncio.IncompleteReadError:
+            logger.error("Connection closed while reading data")
+            return None
+        except Exception as e:
+            logger.error(f"Error reading data: {e}")
+            return None
     
     async def _read_channel_data(self, expected_length: int, timeout: float = 10.0) -> bytes | None:
         """Helper method to read a complete data channel with timeout."""
@@ -618,7 +649,7 @@ class DetectorIOC(PVGroup):
         await self.tcp_client.send_command(
             "ACTION", action="GET_IMAGE", get_response=False
         )
-        data = await self.tcp_client.read_data()
+        data = await self.tcp_client.get_data()
         if data:
             return data
         else:
@@ -752,6 +783,8 @@ class DetectorIOC(PVGroup):
                 
                 if act_scans_value > num_processed:
                     logger.info(f"New scan detected: {act_scans_value} (was {num_processed})")
+                    if act_scans_value > self.num_captured.value + 1:
+                        logger.warning(f"FRAME SKIPPED: {act_scans_value} (was {num_processed})")
                     
                     await self._write_image_to_file()
                     
