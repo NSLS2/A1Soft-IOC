@@ -244,7 +244,7 @@ class DetectorTCPClient:
         cmd_id = self._cmd_id
         self._cmd_id += 1
         if cmd_type == "ACTION":
-            cmd = f'{{"cmd":"ACTION","id":{cmd_id},"values":"{action}"}}\r\n'
+            cmd = f'{{"cmd":"ACTION","id":{cmd_id},"values":"{action}"}}'
         elif cmd_type == "GET":
             if parameter == "*":
                 cmd = f'{{"cmd":"GET","id":{cmd_id},"values":"*"}}'
