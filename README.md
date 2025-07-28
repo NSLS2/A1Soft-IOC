@@ -14,9 +14,9 @@ There are three TCP socket connections.
 
 | Usage | Description |
 |-------|-------------|
-| Data | For finsihed images accessed via the `GET_IMAGE` [Action](#Actions). |
+| Data | For images accessed via the `GET_IMAGE` [Action](#Actions). |
 | Commands | For commands sent from a client and responses to that client (in JSON format) |
-| Live plots | For live data monitoring |
+| Live plots | For live data monitoring (DOES NOT WORK) |
 
 ## Commands Types
 
@@ -101,9 +101,34 @@ Here are a list of the types of commands able to be processed by the TCP server.
 | DET_OFF | <unknown> |
 | MONITOR_ON | <unknown> |
 | MONITOR_OFF | <unknown> |
-| GET_IMAGE | <unknown> |
+| GET_IMAGE | Requests an image on the data socket |
 | GET_ACQ_STATS | <unknown> |
 
+
+## Data Socket
+
+You will only receive data on this socket after sending a `GET_IMAGE` [Action](#Actions) over the JSON socket. The schema is
+
+| Name | Byte offset | Description |
+|------|-------------|-------------|
+| Header | 0 - 40 | Contains the header data |
+| Marker | 0 - 4 | <unknown> |
+| Index | 4 - 8 | The current frame number requested since acquisition start |
+| State | 8 - 12 | <unknown> |
+| Reserved | 12 - 16 | <unknown> |
+| Width | 16 - 20 | The width of the first channel image |
+| Height | 20 - 24 | The height of the first channel image |
+| Length | 24 - 28 | The length of the first channel image in bytes |
+| Current width | 28 - 32 | The width of the second channel image |
+| Current height | 32 - 36 | The height of the second channel image |
+| Current length | 36 - 40 | The length of the second channel image in bytes |
+| First channel image | 40 - (40 + Length) | The uint32 byte array for the first channel image, representing the current image being displayed |
+| Second channel image | (40 + length) - (40 + length + current length) | The uint32 byte array for the second channel image, representing the sum of the first channel images in the acquisition so far |
+
+In Fixed acquisition mode, you can only capture data at a maximum of ~12.5 frames per second. The A1Soft latency between receiving a GET_IMAGE action and putting all of this data into the data socket is greater than the rate at which images are produced. This means that the IOC will never be able to keep up and will drop frames!
+
+
+This is not a problem in Swept mode since the acquisition is much slower. Although, in this mode, the first channel data will fill-in from the leftmost column to the rightmost column and timing the command for the full image is impossible (to my knowledge). Therefore, we compute the differences in the second channel images to recover the first channel image, in practice.
 
 # Process Variables (PVs)
 
