@@ -658,13 +658,26 @@ class DetectorIOC(PVGroup):
     async def _background_file_writer(self) -> None:
         """Background task that continuously writes image data from queue to file."""
         with nxopen(self._full_file_path, "a") as file_handle:
-            entry = NXentry(name="entry1")
-            file_handle["entry1"] = entry
+            if "entry1" in file_handle:
+                entry = file_handle["entry1"]
+            else:
+                entry = NXentry(name="entry1")
+                file_handle["entry1"] = entry
 
-            detector = NXdata(name="analyzer")
-            entry["analyzer"] = detector
+            if "analyzer" in entry:
+                detector = entry["analyzer"]
+            else:
+                detector = NXdata(name="analyzer")
+                entry["analyzer"] = detector
 
-            data_field = None
+            if "channel_1_data" in detector:
+                channel_1_data_field = detector["channel_1_data"]
+            else:
+                channel_1_data_field = None
+            if "channel_2_data" in detector:
+                channel_2_data_field = detector["channel_2_data"]
+            else:
+                channel_2_data_field = None
 
             while True:
                 try:
@@ -675,8 +688,8 @@ class DetectorIOC(PVGroup):
                     if data is None:
                         break
 
-                    # Initialize data field
-                    if data_field is None:
+                    # Initialize data field with correct shapes
+                    if channel_1_data_field is None:
                         channel_1_data_field = NXfield(name="channel_1_data",
                             shape=(1, data["cur_height"], data["cur_width"]),
                             dtype=np.uint8,
@@ -684,6 +697,7 @@ class DetectorIOC(PVGroup):
                         )
                         detector["channel_1_data"] = channel_1_data_field
 
+                    if channel_2_data_field is None:
                         channel_2_data_field = NXfield(name="channel_2_data",
                             shape=(1, data["cur_height"], data["cur_width"]),
                             dtype=np.uint8,
@@ -703,9 +717,6 @@ class DetectorIOC(PVGroup):
                     channel_1_data_field[channel_1_data_field.shape[0] - 1, :, :] = data["channel_1_data"]
                     channel_2_data_field.resize(channel_2_data_field.shape[0] + 1, axis=0)
                     channel_2_data_field[channel_2_data_field.shape[0] - 1, :, :] = data["channel_2_data"]
-
-                    # Flush the file to disk
-                    file_handle.flush()
 
                     # Mark the task as done
                     self._image_queue.task_done()
