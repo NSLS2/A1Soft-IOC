@@ -641,7 +641,6 @@ class DetectorIOC(PVGroup):
             self.over_range: "OverRange",
         }
         self._param_names_to_pvs = {v: k for k, v in self._pvs_to_param_names.items()}
-        self._file_handle: Any | None = None
         self._full_file_path: Path | None = None
         self._last_array: np.ndarray | None = None
         
@@ -720,9 +719,6 @@ class DetectorIOC(PVGroup):
 
     async def _write_image_to_file(self) -> None:
         """Request image and queue it for writing."""
-        if not self._file_handle:
-            return
-            
         data = await self._get_current_frame()
         
         if data:
@@ -739,10 +735,6 @@ class DetectorIOC(PVGroup):
     async def file_capture(self, instance: PvpropertyData, value: Literal["On", "Off"]) -> bool:
         """Start or stop file capture."""
         if value == "On":
-            # TODO: Construct nexus file format here?
-            if self._file_handle:
-                logger.warning("File capture already in progress")
-                return False
             file_path = self.file_path.value
             if not file_path:
                 logger.error(f"File path not set, got: {file_path}")
@@ -752,7 +744,6 @@ class DetectorIOC(PVGroup):
                 logger.error(f"File name must be set and end with .nxs, got: {filename}")
                 return False
             self._full_file_path = Path(file_path) / filename
-            self._file_handle = NXroot(self._full_file_path)
             await self.num_captured.write(0)
             
             # Create fresh queue for this capture session
@@ -775,24 +766,18 @@ class DetectorIOC(PVGroup):
                     self._file_writer_task.cancel()
                 self._file_writer_task = None
                 
-            if self._file_handle:
-                self._file_handle.flush()
-                self._file_handle.close()
-                self._file_handle = None
-                self._full_file_path = None
-                self._last_array = None
-                
-                # Clear any remaining items in queue
-                while not self._image_queue.empty():
-                    try:
-                        self._image_queue.get_nowait()
-                        self._image_queue.task_done()
-                    except asyncio.QueueEmpty:
-                        break
-                        
-                await self.file_status.write(f"File capture stopped, wrote to {self._full_file_path}")
-            else:
-                logger.error("No file capture in progress")
+            self._full_file_path = None
+            self._last_array = None
+            
+            # Clear any remaining items in queue
+            while not self._image_queue.empty():
+                try:
+                    self._image_queue.get_nowait()
+                    self._image_queue.task_done()
+                except asyncio.QueueEmpty:
+                    break
+                    
+            await self.file_status.write(f"File capture stopped, wrote to {self._full_file_path}")
         return value
 
     @act_scans.scan(period=0.05)  # 50ms scan instead of 1ms - still faster than detector response
