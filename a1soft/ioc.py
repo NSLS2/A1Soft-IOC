@@ -692,7 +692,7 @@ class DetectorIOC(PVGroup):
                     if channel_1_data_field is None:
                         channel_1_data_field = NXfield(name="channel_1_data",
                             shape=(0, data["cur_height"], data["cur_width"]),
-                            dtype=np.uint8,
+                            dtype=np.uint32,
                             maxshape=(None, data["cur_height"], data["cur_width"]),
                         )
                         detector["channel_1_data"] = channel_1_data_field
@@ -700,7 +700,7 @@ class DetectorIOC(PVGroup):
                     if channel_2_data_field is None:
                         channel_2_data_field = NXfield(name="channel_2_data",
                             shape=(0, data["cur_height"], data["cur_width"]),
-                            dtype=np.uint8,
+                            dtype=np.uint32,
                             maxshape=(None, data["cur_height"], data["cur_width"]),
                         )
                         detector["channel_2_data"] = channel_2_data_field
