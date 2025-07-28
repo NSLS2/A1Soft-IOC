@@ -304,9 +304,7 @@ class DetectorTCPClient:
 
         try:
             # Read 40-byte header
-            header_data = await asyncio.wait_for(
-                self.data_reader.readexactly(40), timeout=5.0
-            )
+            header_data = await self.data_reader.readexactly(40)
             
             # Parse header
             marker = int.from_bytes(header_data[0:4], byteorder="big", signed=False)
