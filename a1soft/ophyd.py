@@ -1,8 +1,11 @@
+from pathlib import Path
+from datetime import datetime
+
 from ophyd import Device, Component as Cpt, EpicsSignal, EpicsSignalRO, Staged
+from ophyd.areadetector.filestore_mixins import FileStoreBase
 from ophyd.status import Status
 
-
-class SpectrumAnalyzer(Device):
+class SpectrumAnalyzer(Device, FileStoreBase):
     # Acquisition control
     acquire = Cpt(EpicsSignal, "ACQUIRE")
     acquisition_status = Cpt(EpicsSignalRO, "ACQ:STATUS")
@@ -25,6 +28,14 @@ class SpectrumAnalyzer(Device):
     last_error = Cpt(EpicsSignalRO, "SYS:ERROR")
     last_sync = Cpt(EpicsSignalRO, "SYS:LAST_SYNC")
     sync = Cpt(EpicsSignal, "SYS:SYNC")
+
+    # File writing
+    file_capture = Cpt(EpicsSignal, "FILE:CAPTURE")
+    file_name = Cpt(EpicsSignal, "FILE:NAME")
+    file_path = Cpt(EpicsSignal, "FILE:PATH")
+    file_status = Cpt(EpicsSignalRO, "FILE:STATUS")
+    num_captured = Cpt(EpicsSignalRO, "FILE:NUM_CAPTURED")
+    num_processed = Cpt(EpicsSignalRO, "FILE:NUM_PROCESSED")
 
     # Detector parameters
     state = Cpt(EpicsSignalRO, "STATE", string=True)
@@ -85,18 +96,34 @@ class SpectrumAnalyzer(Device):
     over_r_arr = Cpt(EpicsSignal, "OVER_R_ARR")
     over_range = Cpt(EpicsSignal, "OVER_RANGE")
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, write_path_template: str, *args, **kwargs):
+        super().__init__(*args, write_path_template=write_path_template, **kwargs)
         self.stage_sigs.update(
             [
                 (self.acquire, 0),
+                (self.file_capture, 1),
             ]
         )
         self._status = None
 
+    def get_frames_per_point(self):
+        return self.num_scans.get()
+
     def stage(self):
+        path = Path(f"{datetime.now().strftime(self.write_path_template)}")
+        self.file_path.put(path)
+
+        file_name = Path(self.file_name.get())
+        self._fn = str(path / file_name)
+        self.filestore_spec = "AD_HDF5"
+
+        super()._generate_resource({"fpp": self.get_frames_per_point()})
+
         self.state.subscribe(self._stage_changed, run=False)
         return super().stage()
+
+    def generate_datum(self, key, timestamp, datum_kwargs):
+        super().generate_datum(key, timestamp, datum_kwargs)
 
     def _stage_changed(self, value=None, old_value=None, **kwargs):
         if self._status is None:
