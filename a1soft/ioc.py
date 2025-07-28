@@ -76,6 +76,69 @@ class DetectorTCPClient:
                 sock.close()
         self.connected = False
 
+    async def _read_response(self, json_socket: socket.socket) -> str | None:
+        """Read response from socket."""
+        response: str = ""
+        buffer = b""
+        bytes_received = 0
+        
+        while True:
+            try:
+                loop = asyncio.get_event_loop()
+                # Read up to 4KB at a time instead of 1 byte
+                chunk = await asyncio.wait_for(
+                    loop.sock_recv(json_socket, 4096), timeout=5.0
+                )
+                
+                if not chunk:
+                    raise ConnectionError("Socket closed during response read")
+                
+                buffer += chunk
+                bytes_received += len(chunk)
+                
+                # Look for \r\n terminator in the raw bytes (no decoding yet)
+                terminator_pos = buffer.find(b'\r\n')
+                if terminator_pos != -1:
+                    # Found complete response, extract the message part
+                    response_bytes = buffer[:terminator_pos]
+                    # Decode only once at the end
+                    response = response_bytes.decode('utf-8')
+                    break
+
+            except asyncio.TimeoutError:
+                logger.error("Command timeout after 5 seconds")
+                return None
+
+        # Parse response to get size info
+        try:
+            parsed_response = json.loads(response.replace("\\", "/"))
+            return parsed_response
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {e}, response: {response[:100]}...")
+            return None
+
+    async def send_action(self, action: str | None = None, get_response: bool = False) -> dict[str, Any] | None:
+        """Send action to the detector and optionally wait for response."""
+        if not self.connected:
+            return None
+
+        json_socket = cast(socket.socket, self.json_socket)
+        cmd_id: int = random.randrange(100)
+        cmd = f'{{"cmd":"ACTION","id":{cmd_id},"values":"{action}"}}'
+        async with self._json_lock:
+            try:
+                loop = asyncio.get_event_loop()
+                msg: bytes = (cmd + "\r\n").encode()
+                await loop.sock_sendall(json_socket, msg)
+
+                if get_response:
+                    return await self._read_response(json_socket)
+                return None
+            except Exception as e:
+                logger.error(f"Failed to send action: {e}")
+                return None
+
     async def send_command(
         self,
         cmd_type: str,
@@ -84,7 +147,7 @@ class DetectorTCPClient:
         parameter: str | None = None,
         value: str | None = None,
     ) -> dict[str, Any] | None:
-        """Send JSON command to detector."""
+        """Send JSON command to detector and wait for response."""
         if not self.connected:
             return None
 
@@ -93,7 +156,7 @@ class DetectorTCPClient:
         cmd_id: int = random.randrange(100)
 
         if cmd_type == "ACTION":
-            cmd = f'{{"cmd":"ACTION","id":{cmd_id},"values":"{action}"}}'
+            return await self.send_action(action, get_response=True)
         elif cmd_type == "GET":
             if parameter == "*":
                 cmd = f'{{"cmd":"GET","id":{cmd_id},"values":"*"}}'
@@ -108,52 +171,8 @@ class DetectorTCPClient:
             try:
                 loop = asyncio.get_event_loop()
                 msg: bytes = (cmd + "\r\n").encode()
-                
                 await loop.sock_sendall(json_socket, msg)
-
-                # Read response using asyncio-compatible operations
-                response: str = ""
-                char_ret: bool = False
-
-                
-                # Read response in larger chunks and decode only once at the end
-                buffer = b""
-                bytes_received = 0
-                
-                while True:
-                    try:
-                        # Read up to 4KB at a time instead of 1 byte
-                        chunk = await asyncio.wait_for(
-                            loop.sock_recv(json_socket, 4096), timeout=5.0
-                        )
-                        
-                        if not chunk:
-                            raise ConnectionError("Socket closed during response read")
-                        
-                        buffer += chunk
-                        bytes_received += len(chunk)
-                        
-                        # Look for \r\n terminator in the raw bytes (no decoding yet)
-                        terminator_pos = buffer.find(b'\r\n')
-                        if terminator_pos != -1:
-                            # Found complete response, extract the message part
-                            response_bytes = buffer[:terminator_pos]
-                            # Decode only once at the end
-                            response = response_bytes.decode('utf-8')
-                            break
-
-                    except asyncio.TimeoutError:
-                        logger.error("Command timeout after 5 seconds")
-                        return None
-
-                # Parse response to get size info
-                try:
-                    parsed_response = json.loads(response.replace("\\", "/"))
-                    return parsed_response
-                    
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse JSON response: {e}, response: {response[:100]}...")
-                    return None
+                return await self._read_response(json_socket)
             except Exception as e:
                 logger.error(f"Command failed: {e}")
                 return None
@@ -529,21 +548,14 @@ class DetectorIOC(PVGroup):
         self._last_array: np.ndarray | None = None
         
     async def _get_current_frame(self) -> dict[str, Any]| None:
-        response: dict[str, Any] | None = await self.tcp_client.send_command(
-            "ACTION", action="GET_IMAGE"
+        await self.tcp_client.send_action(
+            action="GET_IMAGE", get_response=False
         )
-        
-        if response:
-            logger.info("Image requested")
-            data = await self.tcp_client.read_data()
-            
-            if data:
-                return data
-            else:
-                logger.warning("Failed to read image data")
+        data = await self.tcp_client.read_data()
+        if data:
+            return data
         else:
-            logger.warning("Failed to request image")
-
+            logger.warning("Failed to read image data")
         return None
 
     async def _background_file_writer(self) -> None:
