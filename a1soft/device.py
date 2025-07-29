@@ -16,7 +16,6 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
 
     # Status and info
     connection_status = Cpt(EpicsSignalRO, "SYS:CONNECTED")
-    last_error = Cpt(EpicsSignalRO, "SYS:ERROR")
     last_sync = Cpt(EpicsSignalRO, "SYS:LAST_SYNC")
     sync = Cpt(EpicsSignal, "SYS:SYNC")
 
