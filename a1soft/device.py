@@ -149,13 +149,18 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         )
         return describe
 
+    def get_index(self) -> int:
+        return self._index
+
     def collect_asset_docs(
         self, index: Optional[int] = None
     ) -> SyncOrAsyncIterator[StreamAsset]:
         if index is not None:
-            raise NotImplementedError("Indexing is not supported for this detector")
+            msg = f"Indexing is not supported for this detector, got: {index}, current index: {self.get_index()}"
+            raise NotImplementedError(msg)
 
-        if self._index:
+        index = self.get_index()
+        if index:
             if not self._composer:
                 self._composer = compose_stream_resource(
                     data_key=f"{self.name}_image",
@@ -165,12 +170,12 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 )
                 yield "stream_resource", self._composer.stream_resource_doc
 
-            if self._index >= self._last_emitted_index:
+            if index >= self._last_emitted_index:
                 indices = {
                     "start": self._last_emitted_index,
-                    "stop": self._index,
+                    "stop": index,
                 }
-                self._last_emitted_index = self._index
+                self._last_emitted_index = index
                 yield "stream_datum", self._composer.compose_stream_datum(indices)
 
     def unstage(self):
