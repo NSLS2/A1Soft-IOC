@@ -10,8 +10,7 @@ import logging
 import time
 from pathlib import Path
 from textwrap import dedent
-from turtle import width
-from typing import Any, cast, Literal
+from typing import Any, Literal
 
 from nexusformat.nexus import NXdata, NXfield, NXroot, NXentry, nxopen
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyData
@@ -450,19 +449,6 @@ class DetectorIOC(PVGroup):
     acquire = pvproperty(value=0, name="ACQUIRE")
     acquisition_status = pvproperty(value=0, name="ACQ:STATUS", read_only=True)
 
-    # Monitor control
-    monitor_on = pvproperty(value=0, name="MON:ON")
-    monitor_off = pvproperty(value=0, name="MON:OFF")
-    monitor_status = pvproperty(value=0, name="MON:STATUS", read_only=True)
-
-    # Detector control
-    detector_off = pvproperty(value=0, name="DET:OFF")
-    detector_status = pvproperty(value=1, name="DET:STATUS", read_only=True)
-
-    # Image acquisition
-    get_image = pvproperty(value=0, name="IMG:GET")
-    get_stats = pvproperty(value=0, name="ACQ:STATS")
-
     # File writing
     file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
     file_name = pvproperty(value="", name="FILE:NAME", dtype=ChannelType.STRING)
@@ -642,7 +628,7 @@ class DetectorIOC(PVGroup):
         }
         self._param_names_to_pvs = {v: k for k, v in self._pvs_to_param_names.items()}
         self._full_file_path: Path | None = None
-        self._last_array: np.ndarray | None = None
+        self._file_handle: NXroot | None = None
         
     async def _get_current_frame(self) -> dict[str, Any]| None:
         await self.tcp_client.send_command(
@@ -657,76 +643,55 @@ class DetectorIOC(PVGroup):
 
     async def _background_file_writer(self) -> None:
         """Background task that continuously writes image data from queue to file."""
-        with nxopen(self._full_file_path, "a") as file_handle:
-            if "entry1" in file_handle:
-                entry = file_handle["entry1"]
-            else:
-                entry = NXentry(name="entry1")
-                file_handle["entry1"] = entry
+        if self._file_handle is None:
+            raise RuntimeError("File handle not initialized")
 
-            if "analyzer" in entry:
-                detector = entry["analyzer"]
-            else:
-                detector = NXdata(name="analyzer")
-                entry["analyzer"] = detector
+        entry = self._file_handle["entry1"]
+        detector = entry["analyzer"]
 
-            if "channel_1_data" in detector:
-                channel_1_data_field = detector["channel_1_data"]
-            else:
-                channel_1_data_field = None
-            if "channel_2_data" in detector:
-                channel_2_data_field = detector["channel_2_data"]
-            else:
-                channel_2_data_field = None
+        if "data" in detector:
+            data_field = detector["data"]
+        else:
+            data_field = None
 
-            while True:
-                try:
-                    # Wait for data from the queue
-                    data = await self._image_queue.get()
-                    
-                    # Check for shutdown signal (None is used as sentinel)
-                    if data is None:
-                        break
-
-                    # Initialize data field with correct shapes
-                    if channel_1_data_field is None:
-                        channel_1_data_field = NXfield(name="channel_1_data",
-                            shape=(0, data["cur_height"], data["cur_width"]),
-                            dtype=np.uint32,
-                            maxshape=(None, data["cur_height"], data["cur_width"]),
-                        )
-                        detector["channel_1_data"] = channel_1_data_field
-
-                    if channel_2_data_field is None:
-                        channel_2_data_field = NXfield(name="channel_2_data",
-                            shape=(0, data["cur_height"], data["cur_width"]),
-                            dtype=np.uint32,
-                            maxshape=(None, data["cur_height"], data["cur_width"]),
-                        )
-                        detector["channel_2_data"] = channel_2_data_field
-
-                    # Hack to recover the current frame from the sum of the scans so far
-                    # This is needed because the current frame is already reset to all zeros
-                    # when the act_scans parameter is incremented...
-                    current_frame = data["channel_2_data"] - self._last_array if self._last_array is not None else data["channel_2_data"]
-                    data["channel_1_data"] = current_frame
-                    self._last_array = data["channel_2_data"]
-                    
-                    # Write to file (expand the data field)
-                    channel_1_data_field.resize(channel_1_data_field.shape[0] + 1, axis=0)
-                    channel_1_data_field[channel_1_data_field.shape[0] - 1, :, :] = data["channel_1_data"]
-                    channel_2_data_field.resize(channel_2_data_field.shape[0] + 1, axis=0)
-                    channel_2_data_field[channel_2_data_field.shape[0] - 1, :, :] = data["channel_2_data"]
-
-                    # Mark the task as done
-                    self._image_queue.task_done()
-                    
-                except asyncio.CancelledError:
+        while True:
+            try:
+                # Wait for data from the queue
+                index, data = await self._image_queue.get()
+                
+                # Check for shutdown signal (None is used as sentinel)
+                if data is None:
                     break
-                except Exception as e:
-                    logger.error(f"Error in background file writer: {e}")
-                    # Mark the task as done even on error
-                    self._image_queue.task_done()
+
+                if data_field is None:
+                    data_field = NXfield(name="data",
+                        shape=(0, data["cur_height"], data["cur_width"]),
+                        dtype=np.uint32,
+                        maxshape=(None, data["cur_height"], data["cur_width"]),
+                    )
+                    detector["data"] = data_field
+
+                # We continually overwrite the last frame in the data field in-case of
+                # an error during acquisition.
+                # The index value is incremented when acquisition state transitions to STANDBY
+                # This way, the last frame of each acquisition is saved (which is the cumulative sum
+                # of all the "act_scans" in the acquisition).
+                size = index + 1
+                if data_field.shape[0] < size:
+                    data_field.resize(size, axis=0)
+                data_field[index, :, :] = data["channel_2_data"]
+                # Update the file immediately to avoid losing data
+                self._file_handle.nxfile.file.flush()
+
+                # Mark the task as done
+                self._image_queue.task_done()
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in background file writer: {e}")
+                # Mark the task as done even on error
+                self._image_queue.task_done()
 
     async def _write_image_to_file(self) -> None:
         """Request image and queue it for writing."""
@@ -735,12 +700,19 @@ class DetectorIOC(PVGroup):
         if data:
             try:
                 # Put data in queue without blocking (will raise QueueFull if full)
-                self._image_queue.put_nowait(data)
+                # The num_captured value is the index of the frame to be written to file
+                self._image_queue.put_nowait((self.num_captured.value, data))
                 
             except asyncio.QueueFull:
                 logger.warning(f"Image queue is full ({self._image_queue.qsize()} items), dropping frame")
         else:
             logger.error(f"Failed to get current frame for file writing")
+
+    def _create_file_structure(self, file_handle: NXroot) -> None:
+        if "entry1" not in file_handle:
+            file_handle["entry1"] = NXentry(name="entry1")
+        if "analyzer" not in file_handle["entry1"]:
+            file_handle["entry1"]["analyzer"] = NXdata(name="analyzer")
 
     @file_capture.putter
     async def file_capture(self, instance: PvpropertyData, value: Literal["On", "Off"]) -> bool:
@@ -754,12 +726,20 @@ class DetectorIOC(PVGroup):
             if not filename or not filename.endswith(".nxs"):
                 logger.error(f"File name must be set and end with .nxs, got: {filename}")
                 return False
-            self._full_file_path = Path(file_path) / filename
-            await self.num_captured.write(0)
             
+            self._full_file_path = Path(file_path) / filename
+
             # Create fresh queue for this capture session
             self._image_queue = asyncio.Queue(maxsize=100)
-            
+            self._file_handle = nxopen(self._full_file_path, "a")
+            self._create_file_structure(self._file_handle)
+            if "data" in self._file_handle["entry1"]["analyzer"]:
+                size = self._file_handle["entry1"]["analyzer"]["data"].shape[0]
+                logger.warning(f"Appending to existing file with {size} frames")
+                await self.num_captured.write(size)
+            else:
+                await self.num_captured.write(0)
+
             # Start background file writer task
             self._file_writer_task = asyncio.create_task(self._background_file_writer())
             
@@ -778,8 +758,9 @@ class DetectorIOC(PVGroup):
                 self._file_writer_task = None
                 
             self._full_file_path = None
-            self._last_array = None
-            
+            self._file_handle.close()
+            self._file_handle = None
+
             # Clear any remaining items in queue
             while not self._image_queue.empty():
                 try:
@@ -791,7 +772,7 @@ class DetectorIOC(PVGroup):
             await self.file_status.write(f"File capture stopped, wrote to {self._full_file_path}")
         return value
 
-    @act_scans.scan(period=0.05)  # 50ms scan instead of 1ms - still faster than detector response
+    @act_scans.scan(period=0.05)
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for acutal number of scans completed."""
         if self.acquisition_status.value == 1 and self.file_capture.value == "On":
@@ -813,7 +794,6 @@ class DetectorIOC(PVGroup):
                     await async_lib.library.gather(
                         self.num_processed.write(act_scans_value),
                         self.act_scans.write(act_scans_value),
-                        self.num_captured.write(self.num_captured.value + 1),
                     )
             else:
                 logger.error(f"Failed to get actual number of scans, got: {response}")
@@ -826,7 +806,10 @@ class DetectorIOC(PVGroup):
             if response and "values" in response:
                 value = response["values"][0]["value"]
                 if value == "STANDBY" and value != instance.value:
-                    await async_lib.library.gather(self.acquire.write(0), self.state.write(value))
+                    await async_lib.library.gather(
+                        self.acquire.write(0),
+                        self.state.write(value),
+                    )
             else:
                 logger.error(f"Failed to get state update, got: {response}")
 
@@ -892,11 +875,8 @@ class DetectorIOC(PVGroup):
             )
             if response:
                 await self.acquisition_status.write(1)
-                # Reset file writing state for new acquisition
                 if self.file_capture.value == "On":
-                    self._last_array = None
                     await self.num_processed.write(0)
-                    logger.info("Reset file writing state for new acquisition")
             else:
                 logger.error("Failed to start acquisition")
                 return 0
@@ -909,77 +889,14 @@ class DetectorIOC(PVGroup):
             )
             if response:
                 await self.acquisition_status.write(0)
+                if self.file_capture.value == "On":
+                    logger.info(f"Committing frame {self.num_captured.value} to file")
+                    await self.num_captured.write(self.num_captured.value + 1)
                 logger.info("Acquisition stopped")
             else:
                 logger.error("Failed to stop acquisition")
                 return self.acquire.value
 
-        return value
-
-    @monitor_on.putter
-    async def monitor_on(self, instance: Any, value: int) -> int:
-        """Turn monitoring on."""
-        if value == 1:
-            response: dict[str, Any] | None = await self.tcp_client.send_command(
-                "ACTION", action="MONITOR_ON"
-            )
-            if response:
-                await self.monitor_status.write(1)
-                logger.info("Monitor enabled")
-            else:
-                logger.error("Failed to enable monitor")
-        return value
-
-    @monitor_off.putter
-    async def monitor_off(self, instance: Any, value: int) -> int:
-        """Turn monitoring off."""
-        if value == 1:
-            response: dict[str, Any] | None = await self.tcp_client.send_command(
-                "ACTION", action="MONITOR_OFF"
-            )
-            if response:
-                await self.monitor_status.write(0)
-                logger.info("Monitor disabled")
-            else:
-                logger.error("Failed to disable monitor")
-        return value
-
-    @detector_off.putter
-    async def detector_off(self, instance: Any, value: int) -> int:
-        """Turn detector off."""
-        if value == 1:
-            response: dict[str, Any] | None = await self.tcp_client.send_command(
-                "ACTION", action="DET_OFF"
-            )
-            if response:
-                await self.detector_status.write(0)
-                logger.info("Detector disabled")
-            else:
-                logger.error("Failed to disable detector")
-        return value
-
-    @get_image.putter
-    async def get_image(self, instance: Any, value: int) -> int:
-        """Request an image from detector."""
-        if value == 1:
-            data = await self._get_current_frame()
-            if data:
-                logger.info(f"Image received: {data}")
-            else:
-                logger.error("Failed to get image")
-        return value
-
-    @get_stats.putter
-    async def get_stats(self, instance: Any, value: int) -> int:
-        """Get acquisition statistics."""
-        if value == 1:
-            response: dict[str, Any] | None = await self.tcp_client.send_command(
-                "ACTION", action="GET_ACQ_STATS"
-            )
-            if response:
-                logger.info("Stats requested")
-            else:
-                logger.error("Failed to get stats")
         return value
 
     async def cleanup(self) -> None:
