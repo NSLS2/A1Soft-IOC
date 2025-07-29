@@ -8,6 +8,8 @@ dynamic = ["version"]
 dependencies = [
   "caproto >=0.4.2rc1,!=1.2.0",
   "ophyd",
+  "bluesky",
+  "nexusformat",
 ]
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,6 +37,7 @@ version = "0.1.0"
 [tool.pixi.dependencies]
 python = ">=3.10,<3.13"
 nexusformat = "*"
+bluesky = "*"
 
 [tool.pixi.pypi-dependencies]
 a1soft = { path = ".", editable = true }

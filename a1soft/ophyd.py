@@ -1,11 +1,14 @@
 from pathlib import Path
-from datetime import datetime
+from typing import Optional
 
+import numpy as np
+from bluesky.protocols import WritesStreamAssets, Readable
+from bluesky.utils import SyncOrAsyncIterator, StreamAsset
+from event_model import compose_stream_resource, DataKey
 from ophyd import Device, Component as Cpt, EpicsSignal, EpicsSignalRO, Staged
-from ophyd.areadetector.filestore_mixins import FileStoreBase
 from ophyd.status import Status
 
-class SpectrumAnalyzer(Device, FileStoreBase):
+class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     # Acquisition control
     acquire = Cpt(EpicsSignal, "ACQUIRE")
     acquisition_status = Cpt(EpicsSignalRO, "ACQ:STATUS")
@@ -92,34 +95,30 @@ class SpectrumAnalyzer(Device, FileStoreBase):
             ]
         )
         self._status = None
-
-    def get_frames_per_point(self):
-        return self.num_scans.get()
+        self._index = 0
+        self._last_emitted_index = 0
+        self._composer = None
+        self._full_path = None
 
     def stage(self):
         if self.file_capture.get() == "On":
             raise RuntimeError("File capture must be off to stage the detector, otherwise the file will be corrupted")
 
-        path = Path(f"{datetime.now().strftime(self.write_path_template)}")
-        self.file_path.put(path)
-
+        path = Path(self.file_path.get())
         file_name = Path(self.file_name.get())
-        self._fn = str(path / file_name)
-        self.filestore_spec = "HDF5"
-
-        super()._generate_resource({"dataset": "entry1/analyzer/data"})
+        self._full_path = str(path / file_name)
+        self._index = 0
+        self._last_emitted_index = 0
 
         self.state.subscribe(self._stage_changed, run=False)
         return super().stage()
-
-    def generate_datum(self, key, timestamp, datum_kwargs):
-        super().generate_datum(key, timestamp, datum_kwargs)
 
     def _stage_changed(self, value=None, old_value=None, **kwargs):
         if self._status is None:
             return
         if value == "STANDBY" and old_value == "RUNNING":
             self._status.set_finished()
+            self._index += 1
             self._status = None
 
     def trigger(self):
@@ -132,6 +131,42 @@ class SpectrumAnalyzer(Device, FileStoreBase):
         self._status = Status()
         return self._status
 
+    def describe(self) -> dict[str, DataKey]:
+        describe = super().describe()
+        describe.update({
+            f"{self.name}_image": DataKey(
+                source=f"{self._full_path}",
+                shape=(1, 1080, self.num_steps.get()),
+                dtype="array",
+                dtype_numpy=np.dtype(np.uint32).str,
+                external="STREAM:",
+            ),
+        })
+        return describe
+
+    def collect_asset_docs(self, index: Optional[int] = None) -> SyncOrAsyncIterator[StreamAsset]:
+        if index is not None:
+            raise NotImplementedError("Indexing is not supported for this detector")
+
+        if self._index:
+            if not self._composer:
+                self._composer = compose_stream_resource(
+                    data_key=f"{self.name}_image",
+                    mimetype="application/x-hdf5",
+                    uri=f"file://{self._full_path}",
+                    parameters={"dataset": "entry1/analyzer/data"},
+                )
+                yield "stream_resource", self._composer.stream_resource_doc
+            
+            if self._index >= self._last_emitted_index:
+                indices = {
+                    "start": self._last_emitted_index,
+                    "stop": self._index,
+                }
+                self._last_emitted_index = self._index
+                yield "stream_datum", self._composer.compose_stream_datum(indices)
+
     def unstage(self):
         super().unstage()
         self.state.unsubscribe(self._stage_changed)
+        self._composer = None
