@@ -681,6 +681,7 @@ class DetectorIOC(PVGroup):
                 if data_field.shape[0] < size:
                     data_field.resize(size, axis=0)
                 data_field[index, :, :] = data["channel_2_data"]
+                logger.info(f"Writing frame {size} to file")
                 # Update the file immediately to avoid losing data
                 self._file_handle.nxfile.file.flush()
 
