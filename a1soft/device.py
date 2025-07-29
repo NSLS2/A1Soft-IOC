@@ -87,8 +87,8 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     over_r_arr = Cpt(EpicsSignal, "OVER_R_ARR")
     over_range = Cpt(EpicsSignal, "OVER_RANGE")
 
-    def __init__(self, write_path_template: str, *args, **kwargs):
-        super().__init__(*args, write_path_template=write_path_template, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.stage_sigs.update(
             [
                 (self.acquire, 0),
