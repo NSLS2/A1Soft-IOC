@@ -696,13 +696,14 @@ class DetectorIOC(PVGroup):
 
     async def _write_image_to_file(self) -> None:
         """Request image and queue it for writing."""
+        index = self.num_captured.value
         data = await self._get_current_frame()
         
         if data:
             try:
                 # Put data in queue without blocking (will raise QueueFull if full)
                 # The num_captured value is the index of the frame to be written to file
-                self._image_queue.put_nowait((self.num_captured.value, data))
+                self._image_queue.put_nowait((index, data))
                 
             except asyncio.QueueFull:
                 logger.warning(f"Image queue is full ({self._image_queue.qsize()} items), dropping frame")
@@ -796,6 +797,11 @@ class DetectorIOC(PVGroup):
                         self.num_processed.write(act_scans_value),
                         self.act_scans.write(act_scans_value),
                     )
+
+                    # Increment num_captured when the last scan is completed
+                    if act_scans_value == self.num_scans.value:
+                        await self.num_captured.write(self.num_captured.value + 1)
+                        logger.info(f"Committing frame {self.num_captured.value} to file")
             else:
                 logger.error(f"Failed to get actual number of scans, got: {response}")
 
@@ -885,14 +891,12 @@ class DetectorIOC(PVGroup):
             if instance.value == 0:
                 logger.warning("Acquisition not in progress")
                 return 0
+
             response: dict[str, Any] | None = await self.tcp_client.send_command(
                 "ACTION", action="STOP"
             )
             if response:
                 await self.acquisition_status.write(0)
-                if self.file_capture.value == "On":
-                    logger.info(f"Committing frame {self.num_captured.value} to file")
-                    await self.num_captured.write(self.num_captured.value + 1)
                 logger.info("Acquisition stopped")
             else:
                 logger.error("Failed to stop acquisition")
