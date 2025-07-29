@@ -657,12 +657,13 @@ class DetectorIOC(PVGroup):
         while True:
             try:
                 # Wait for data from the queue
-                index, data = await self._image_queue.get()
+                item = await self._image_queue.get()
                 
                 # Check for shutdown signal (None is used as sentinel)
-                if data is None:
+                if item is None:
                     break
 
+                index, data = item
                 if data_field is None:
                     data_field = NXfield(name="data",
                         shape=(0, data["cur_height"], data["cur_width"]),
