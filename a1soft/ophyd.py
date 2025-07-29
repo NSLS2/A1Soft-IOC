@@ -8,6 +8,7 @@ from event_model import compose_stream_resource, DataKey
 from ophyd import Device, Component as Cpt, EpicsSignal, EpicsSignalRO, Staged
 from ophyd.status import Status
 
+
 class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     # Acquisition control
     acquire = Cpt(EpicsSignal, "ACQUIRE")
@@ -102,7 +103,9 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
 
     def stage(self):
         if self.file_capture.get() == "On":
-            raise RuntimeError("File capture must be off to stage the detector, otherwise the file will be corrupted")
+            raise RuntimeError(
+                "File capture must be off to stage the detector, otherwise the file will be corrupted"
+            )
 
         path = Path(self.file_path.get())
         file_name = Path(self.file_name.get())
@@ -133,18 +136,22 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
 
     def describe(self) -> dict[str, DataKey]:
         describe = super().describe()
-        describe.update({
-            f"{self.name}_image": DataKey(
-                source=f"{self._full_path}",
-                shape=(1, 1080, self.num_steps.get()),
-                dtype="array",
-                dtype_numpy=np.dtype(np.uint32).str,
-                external="STREAM:",
-            ),
-        })
+        describe.update(
+            {
+                f"{self.name}_image": DataKey(
+                    source=f"{self._full_path}",
+                    shape=(1, 1080, self.num_steps.get()),
+                    dtype="array",
+                    dtype_numpy=np.dtype(np.uint32).str,
+                    external="STREAM:",
+                ),
+            }
+        )
         return describe
 
-    def collect_asset_docs(self, index: Optional[int] = None) -> SyncOrAsyncIterator[StreamAsset]:
+    def collect_asset_docs(
+        self, index: Optional[int] = None
+    ) -> SyncOrAsyncIterator[StreamAsset]:
         if index is not None:
             raise NotImplementedError("Indexing is not supported for this detector")
 
@@ -157,7 +164,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                     parameters={"dataset": "entry1/analyzer/data"},
                 )
                 yield "stream_resource", self._composer.stream_resource_doc
-            
+
             if self._index >= self._last_emitted_index:
                 indices = {
                     "start": self._last_emitted_index,

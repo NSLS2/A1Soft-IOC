@@ -17,8 +17,11 @@ from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyD
 from caproto import ChannelType
 import numpy as np
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
+
 
 class DetectorTCPClient:
     """TCP client to communicate with LabView detector system using asyncio streams."""
@@ -34,7 +37,7 @@ class DetectorTCPClient:
         self.json_port: int = json_port
         self.data_port: int = data_port
         self.live_port: int = live_port
-        
+
         # StreamReader/StreamWriter pairs for each connection
         self.json_reader: asyncio.StreamReader | None = None
         self.json_writer: asyncio.StreamWriter | None = None
@@ -42,11 +45,11 @@ class DetectorTCPClient:
         self.data_writer: asyncio.StreamWriter | None = None
         self.live_reader: asyncio.StreamReader | None = None
         self.live_writer: asyncio.StreamWriter | None = None
-        
+
         self.connected: bool = False
         self._json_lock: asyncio.Lock = asyncio.Lock()
         self._data_lock: asyncio.Lock = asyncio.Lock()
-        
+
         # Response handling infrastructure
         self._response_reader_task: asyncio.Task | None = None
         self._pending_responses: dict[int, asyncio.Future] = {}
@@ -90,15 +93,17 @@ class DetectorTCPClient:
             )
 
             self.connected = True
-            
+
             # Start background response reader
             self._response_reader_running = True
-            self._response_reader_task = asyncio.create_task(self._response_reader_loop())
+            self._response_reader_task = asyncio.create_task(
+                self._response_reader_loop()
+            )
 
             # Start background data reader
             self._data_reader_running = True
             self._data_reader_task = asyncio.create_task(self._data_reader_loop())
-            
+
             logger.info("Connected to detector TCP interface using asyncio streams")
         except Exception as e:
             logger.error(f"Failed to connect to detector: {e}")
@@ -114,7 +119,7 @@ class DetectorTCPClient:
                     await writer.wait_closed()
                 except Exception as e:
                     logger.debug(f"Error closing writer: {e}")
-        
+
         self.json_reader = self.json_writer = None
         self.data_reader = self.data_writer = None
         self.live_reader = self.live_writer = None
@@ -130,13 +135,13 @@ class DetectorTCPClient:
             except asyncio.CancelledError:
                 pass
             self._response_reader_task = None
-        
+
         # Clean up pending responses
         for future in self._pending_responses.values():
             if not future.done():
                 future.cancel()
         self._pending_responses.clear()
-        
+
         # Close all connections
         await self._cleanup_connections()
         self.connected = False
@@ -144,35 +149,37 @@ class DetectorTCPClient:
     async def _response_reader_loop(self) -> None:
         """Background task that waits for signals and then reads responses."""
         logger.info("Starting event-driven response reader")
-        
+
         while self._response_reader_running and self.connected:
             try:
                 if not self.json_reader:
                     break
-                
+
                 response = await self._read_response()
                 if response is None:
                     continue
-                    
+
                 # Extract command ID from response
-                cmd_id = response.get('id')
+                cmd_id = response.get("id")
                 if cmd_id is not None:
                     # Route response to waiting task
                     future = self._pending_responses.pop(cmd_id, None)
                     if future and not future.done():
                         future.set_result(response)
                     else:
-                        logger.debug(f"Received response for unknown/expired command ID {cmd_id}")
+                        logger.debug(
+                            f"Received response for unknown/expired command ID {cmd_id}"
+                        )
                 else:
                     logger.warning(f"Received response without ID: {response}")
-                    
+
             except asyncio.CancelledError:
                 logger.info("Response reader cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in response reader: {e}")
                 await asyncio.sleep(0.1)  # Brief delay before retrying
-                
+
         logger.info("Event-driven response reader stopped")
 
     async def _data_reader_loop(self) -> None:
@@ -200,22 +207,24 @@ class DetectorTCPClient:
         """Read response from JSON stream using asyncio streams."""
         if not self.json_reader:
             return None
-            
+
         try:
             # Blocking read until \r\n terminator
-            response_data = await self.json_reader.readuntil(b'\r\n')
-            
+            response_data = await self.json_reader.readuntil(b"\r\n")
+
             # Remove the terminator and decode
-            response_bytes = response_data.rstrip(b'\r\n')
-            
+            response_bytes = response_data.rstrip(b"\r\n")
+
             try:
-                response = response_bytes.decode('utf-8')
+                response = response_bytes.decode("utf-8")
                 parsed_response = json.loads(response.replace("\\", "/"))
                 return parsed_response
             except (UnicodeDecodeError, json.JSONDecodeError) as e:
-                logger.error(f"Failed to parse response: {e}, response: {response_bytes[:100]}...")
+                logger.error(
+                    f"Failed to parse response: {e}, response: {response_bytes[:100]}..."
+                )
                 return None
-                
+
         except asyncio.TimeoutError:
             logger.warning("Timeout waiting for response data")
             return None
@@ -260,14 +269,14 @@ class DetectorTCPClient:
             # Create future for response
             response_future = asyncio.Future()
             self._pending_responses[cmd_id] = response_future
-        
+
         # Send command while holding lock, then signal response reader
         async with self._json_lock:
             try:
                 msg: bytes = (cmd + "\r\n").encode()
                 self.json_writer.write(msg)
                 await self.json_writer.drain()
-                
+
             except Exception as e:
                 logger.error(f"Command failed: {e}")
                 # Clean up pending response
@@ -278,7 +287,7 @@ class DetectorTCPClient:
         # Return immediately if no response needed
         if not get_response:
             return None
-        
+
         # Wait for response from background reader
         try:
             response = await response_future
@@ -292,7 +301,7 @@ class DetectorTCPClient:
 
     async def _read_data(self) -> dict[str, Any] | None:
         """Read image data from detector data stream.
-        
+
         Returns dict with parsed header info and pixel data, or None on error/timeout.
 
         The first data channel appears to be the current image, the second data channel is the sum of the images so far.
@@ -306,24 +315,30 @@ class DetectorTCPClient:
         try:
             # Read 40-byte header
             header_data = await self.data_reader.readexactly(40)
-            
+
             # Parse header
             marker = int.from_bytes(header_data[0:4], byteorder="big", signed=False)
-            
-            if marker != 0xf0f0:
+
+            if marker != 0xF0F0:
                 logger.error(f"Invalid marker={marker:#x}, expected 0xf0f0")
                 return None
-                
+
             index = int.from_bytes(header_data[4:8], byteorder="big", signed=True)
             state = int.from_bytes(header_data[8:12], byteorder="big", signed=False)
             reserved = int.from_bytes(header_data[12:16], byteorder="big", signed=False)
             width = int.from_bytes(header_data[16:20], byteorder="big", signed=False)
             height = int.from_bytes(header_data[20:24], byteorder="big", signed=False)
             length = int.from_bytes(header_data[24:28], byteorder="big", signed=False)
-            cur_width = int.from_bytes(header_data[28:32], byteorder="big", signed=False)
-            cur_height = int.from_bytes(header_data[32:36], byteorder="big", signed=False)
-            cur_length = int.from_bytes(header_data[36:40], byteorder="big", signed=False)
-            
+            cur_width = int.from_bytes(
+                header_data[28:32], byteorder="big", signed=False
+            )
+            cur_height = int.from_bytes(
+                header_data[32:36], byteorder="big", signed=False
+            )
+            cur_length = int.from_bytes(
+                header_data[36:40], byteorder="big", signed=False
+            )
+
             result = {
                 "index": index,
                 "state": state,
@@ -331,48 +346,54 @@ class DetectorTCPClient:
                 "width": width,
                 "height": height,
                 "length": length,
-                "cur_width": cur_width, 
+                "cur_width": cur_width,
                 "cur_height": cur_height,
                 "cur_length": cur_length,
                 "channel_1_data": None,
                 "channel_2_data": None,
                 "channel_1_sum": 0,
-                "channel_2_sum": 0
+                "channel_2_sum": 0,
             }
-            
-            logger.info(f"Data header - index: {index}, state: {state}, "
-                f"dimensions: {height}x{width}, length: {length}")
-            
+
+            logger.info(
+                f"Data header - index: {index}, state: {state}, "
+                f"dimensions: {height}x{width}, length: {length}"
+            )
+
             # Read first data channel if length > 0
             if length > 0:
                 channel_1_data = await self._read_channel_data(length, timeout=10.0)
 
                 if channel_1_data is None:
                     return None
-                    
+
                 # Use numpy to directly interpret the binary data (much faster than Python loops)
-                pixel_data_1 = np.frombuffer(channel_1_data, dtype='<u4')  # little-endian uint32
+                pixel_data_1 = np.frombuffer(
+                    channel_1_data, dtype="<u4"
+                )  # little-endian uint32
                 result["channel_1_data"] = pixel_data_1.reshape((cur_height, cur_width))
                 result["channel_1_sum"] = int(pixel_data_1.sum())
-                
+
                 logger.info(f"Channel 1 sum: {result['channel_1_sum']}")
-            
-            # Read second data channel if cur_length > 0  
+
+            # Read second data channel if cur_length > 0
             if cur_length > 0:
                 channel_2_data = await self._read_channel_data(cur_length, timeout=10.0)
-                
+
                 if channel_2_data is None:
                     return None
-                    
+
                 # Use numpy to directly interpret the binary data (much faster than Python loops)
-                pixel_data_2 = np.frombuffer(channel_2_data, dtype='<u4')  # little-endian uint32
+                pixel_data_2 = np.frombuffer(
+                    channel_2_data, dtype="<u4"
+                )  # little-endian uint32
                 result["channel_2_data"] = pixel_data_2.reshape((cur_height, cur_width))
                 result["channel_2_sum"] = int(pixel_data_2.sum())
-                
+
                 logger.info(f"Channel 2 sum: {result['channel_2_sum']}")
-                
+
             return result
-            
+
         except asyncio.TimeoutError:
             logger.error("Timeout reading data header")
             return None
@@ -382,24 +403,30 @@ class DetectorTCPClient:
         except Exception as e:
             logger.error(f"Error reading data: {e}")
             return None
-    
-    async def _read_channel_data(self, expected_length: int, timeout: float = 10.0) -> bytes | None:
+
+    async def _read_channel_data(
+        self, expected_length: int, timeout: float = 10.0
+    ) -> bytes | None:
         """Helper method to read a complete data channel with timeout."""
         if not self.data_reader:
             return None
-            
+
         try:
             # Use readexactly to read exactly the expected number of bytes
             data = await asyncio.wait_for(
                 self.data_reader.readexactly(expected_length), timeout=timeout
             )
             return data
-            
+
         except asyncio.TimeoutError:
-            logger.error(f"Timeout reading channel data, expected {expected_length} bytes")
+            logger.error(
+                f"Timeout reading channel data, expected {expected_length} bytes"
+            )
             return None
         except asyncio.IncompleteReadError as e:
-            logger.error(f"Connection closed while reading channel data, got {len(e.partial)}/{expected_length} bytes")
+            logger.error(
+                f"Connection closed while reading channel data, got {len(e.partial)}/{expected_length} bytes"
+            )
             return None
         except Exception as e:
             logger.error(f"Error reading channel data: {e}")
@@ -453,15 +480,23 @@ class DetectorIOC(PVGroup):
     file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
     file_name = pvproperty(value="", name="FILE:NAME", dtype=ChannelType.STRING)
     file_path = pvproperty(value="", name="FILE:PATH", dtype=ChannelType.STRING)
-    file_status = pvproperty(value="", name="FILE:STATUS", read_only=True, dtype=ChannelType.STRING)
-    num_captured = pvproperty(value=0, name="FILE:NUM_CAPTURED", read_only=True, dtype=int)
+    file_status = pvproperty(
+        value="", name="FILE:STATUS", read_only=True, dtype=ChannelType.STRING
+    )
+    num_captured = pvproperty(
+        value=0, name="FILE:NUM_CAPTURED", read_only=True, dtype=int
+    )
     """Total number of images captured during capture session"""
-    num_processed = pvproperty(value=0, name="FILE:NUM_PROCESSED", read_only=True, dtype=int)
+    num_processed = pvproperty(
+        value=0, name="FILE:NUM_PROCESSED", read_only=True, dtype=int
+    )
     """Number of images processed during a single acquisition"""
 
     # Status and info
     connection_status = pvproperty(value=0, name="SYS:CONNECTED", read_only=True)
-    last_sync = pvproperty(value="", name="SYS:LAST_SYNC", read_only=True, dtype=ChannelType.STRING)
+    last_sync = pvproperty(
+        value="", name="SYS:LAST_SYNC", read_only=True, dtype=ChannelType.STRING
+    )
     sync = pvproperty(
         value="ON",
         name="SYS:SYNC",
@@ -534,10 +569,16 @@ class DetectorIOC(PVGroup):
         put=_param_write, name="SPIN", enum_strings=("FALSE", "TRUE"), dtype=bool
     )
     reg_name = pvproperty(put=_param_write, name="REG_NAME", dtype=ChannelType.STRING)
-    name_string = pvproperty(put=_param_write, name="NAME_STRING", dtype=ChannelType.STRING)
-    generated_name = pvproperty(put=_param_write, name="GENERATED_NAME", dtype=ChannelType.STRING)
+    name_string = pvproperty(
+        put=_param_write, name="NAME_STRING", dtype=ChannelType.STRING
+    )
+    generated_name = pvproperty(
+        put=_param_write, name="GENERATED_NAME", dtype=ChannelType.STRING
+    )
     comment1 = pvproperty(put=_param_write, name="COMMENT1", dtype=ChannelType.STRING)
-    start_time = pvproperty(put=_param_write, name="START_TIME", dtype=ChannelType.STRING)
+    start_time = pvproperty(
+        put=_param_write, name="START_TIME", dtype=ChannelType.STRING
+    )
     discr = pvproperty(put=_param_write, name="DISCR", dtype=int)
     adc_mask = pvproperty(put=_param_write, name="ADC_MASK", dtype=int)
     adc_offset = pvproperty(put=_param_write, name="ADC_OFFSET", dtype=int)
@@ -551,13 +592,19 @@ class DetectorIOC(PVGroup):
     yscale_mult = pvproperty(put=_param_write, name="YSCALE_MULT", dtype=float)
     yscale_max = pvproperty(put=_param_write, name="YSCALE_MAX", dtype=float)
     yscale_min = pvproperty(put=_param_write, name="YSCALE_MIN", dtype=float)
-    yscale_name = pvproperty(put=_param_write, name="YSCALE_NAME", dtype=ChannelType.STRING)
+    yscale_name = pvproperty(
+        put=_param_write, name="YSCALE_NAME", dtype=ChannelType.STRING
+    )
     xscale_mult = pvproperty(put=_param_write, name="XSCALE_MULT", dtype=float)
     xscale_max = pvproperty(put=_param_write, name="XSCALE_MAX", dtype=float)
     xscale_min = pvproperty(put=_param_write, name="XSCALE_MIN", dtype=float)
-    xscale_name = pvproperty(put=_param_write, name="XSCALE_NAME", dtype=ChannelType.STRING)
+    xscale_name = pvproperty(
+        put=_param_write, name="XSCALE_NAME", dtype=ChannelType.STRING
+    )
     psu_mode = pvproperty(put=_param_write, name="PSU_MODE", dtype=ChannelType.STRING)
-    over_r_arr = pvproperty(put=_param_write, name="OVER_R_ARR", dtype=ChannelType.STRING)
+    over_r_arr = pvproperty(
+        put=_param_write, name="OVER_R_ARR", dtype=ChannelType.STRING
+    )
     over_range = pvproperty(put=_param_write, name="OVER_RANGE", dtype=int)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -566,7 +613,9 @@ class DetectorIOC(PVGroup):
         self._sync_task: asyncio.Task | None = None
         self._update_listener_task: asyncio.Task | None = None
         self._file_writer_task: asyncio.Task | None = None
-        self._image_queue: asyncio.Queue = asyncio.Queue(maxsize=100)  # Buffer up to 100 images
+        self._image_queue: asyncio.Queue = asyncio.Queue(
+            maxsize=100
+        )  # Buffer up to 100 images
         self._pvs_to_param_names: dict[PvpropertyData, str] = {
             self.state: "state",
             self.endX: "endX",
@@ -629,8 +678,8 @@ class DetectorIOC(PVGroup):
         self._param_names_to_pvs = {v: k for k, v in self._pvs_to_param_names.items()}
         self._full_file_path: Path | None = None
         self._file_handle: NXroot | None = None
-        
-    async def _get_current_frame(self) -> dict[str, Any]| None:
+
+    async def _get_current_frame(self) -> dict[str, Any] | None:
         await self.tcp_client.send_command(
             "ACTION", action="GET_IMAGE", get_response=False
         )
@@ -658,14 +707,15 @@ class DetectorIOC(PVGroup):
             try:
                 # Wait for data from the queue
                 item = await self._image_queue.get()
-                
+
                 # Check for shutdown signal (None is used as sentinel)
                 if item is None:
                     break
 
                 index, data = item
                 if data_field is None:
-                    data_field = NXfield(name="data",
+                    data_field = NXfield(
+                        name="data",
                         shape=(0, data["cur_height"], data["cur_width"]),
                         dtype=np.uint32,
                         maxshape=(None, data["cur_height"], data["cur_width"]),
@@ -687,7 +737,7 @@ class DetectorIOC(PVGroup):
 
                 # Mark the task as done
                 self._image_queue.task_done()
-                
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -699,17 +749,19 @@ class DetectorIOC(PVGroup):
         """Request image and queue it for writing."""
         index = self.num_captured.value
         data = await self._get_current_frame()
-        
+
         if data:
             try:
                 # Put data in queue without blocking (will raise QueueFull if full)
                 # The num_captured value is the index of the frame to be written to file
                 self._image_queue.put_nowait((index, data))
-                
+
             except asyncio.QueueFull:
-                logger.warning(f"Image queue is full ({self._image_queue.qsize()} items), dropping frame")
+                logger.warning(
+                    f"Image queue is full ({self._image_queue.qsize()} items), dropping frame"
+                )
         else:
-            logger.error(f"Failed to get current frame for file writing")
+            logger.error("Failed to get current frame for file writing")
 
     def _create_file_structure(self, file_handle: NXroot) -> None:
         if "entry1" not in file_handle:
@@ -718,7 +770,9 @@ class DetectorIOC(PVGroup):
             file_handle["entry1"]["analyzer"] = NXdata(name="analyzer")
 
     @file_capture.putter
-    async def file_capture(self, instance: PvpropertyData, value: Literal["On", "Off"]) -> bool:
+    async def file_capture(
+        self, instance: PvpropertyData, value: Literal["On", "Off"]
+    ) -> bool:
         """Start or stop file capture."""
         if value == "On":
             file_path = self.file_path.value
@@ -727,9 +781,11 @@ class DetectorIOC(PVGroup):
                 return False
             filename = self.file_name.value
             if not filename or not filename.endswith(".nxs"):
-                logger.error(f"File name must be set and end with .nxs, got: {filename}")
+                logger.error(
+                    f"File name must be set and end with .nxs, got: {filename}"
+                )
                 return False
-            
+
             self._full_file_path = Path(file_path) / filename
 
             # Create fresh queue for this capture session
@@ -745,8 +801,10 @@ class DetectorIOC(PVGroup):
 
             # Start background file writer task
             self._file_writer_task = asyncio.create_task(self._background_file_writer())
-            
-            await self.file_status.write(f"File capture started, writing to {self._full_file_path}")
+
+            await self.file_status.write(
+                f"File capture started, writing to {self._full_file_path}"
+            )
         else:
             # Stop background writer task
             if self._file_writer_task:
@@ -759,7 +817,7 @@ class DetectorIOC(PVGroup):
                     logger.warning("File writer task did not shutdown cleanly")
                     self._file_writer_task.cancel()
                 self._file_writer_task = None
-                
+
             self._full_file_path = None
             self._file_handle.close()
             self._file_handle = None
@@ -771,8 +829,10 @@ class DetectorIOC(PVGroup):
                     self._image_queue.task_done()
                 except asyncio.QueueEmpty:
                     break
-                    
-            await self.file_status.write(f"File capture stopped, wrote to {self._full_file_path}")
+
+            await self.file_status.write(
+                f"File capture stopped, wrote to {self._full_file_path}"
+            )
         return value
 
     @act_scans.scan(period=0.05)
@@ -780,20 +840,26 @@ class DetectorIOC(PVGroup):
         """Scan for acutal number of scans completed."""
         if self.acquisition_status.value == 1 and self.file_capture.value == "On":
             num_processed = self.num_processed.value
-            
+
             # Get actScans parameter
-            response = await self.tcp_client.get_parameter(self._pvs_to_param_names[self.act_scans])
-            
+            response = await self.tcp_client.get_parameter(
+                self._pvs_to_param_names[self.act_scans]
+            )
+
             if response and "values" in response:
                 act_scans_value = response["values"][0]["value"]
-                
+
                 if act_scans_value > num_processed:
-                    logger.info(f"New scan detected: {act_scans_value} (was {num_processed})")
+                    logger.info(
+                        f"New scan detected: {act_scans_value} (was {num_processed})"
+                    )
                     if act_scans_value > num_processed + 1:
-                        logger.warning(f"FRAME SKIPPED: {act_scans_value} (was {num_processed})")
-                    
+                        logger.warning(
+                            f"FRAME SKIPPED: {act_scans_value} (was {num_processed})"
+                        )
+
                     await self._write_image_to_file()
-                    
+
                     await async_lib.library.gather(
                         self.num_processed.write(act_scans_value),
                         self.act_scans.write(act_scans_value),
@@ -802,7 +868,9 @@ class DetectorIOC(PVGroup):
                     # Increment num_captured when the last scan is completed
                     if act_scans_value == self.num_scans.value:
                         await self.num_captured.write(self.num_captured.value + 1)
-                        logger.info(f"Committing frame {self.num_captured.value} to file")
+                        logger.info(
+                            f"Committing frame {self.num_captured.value} to file"
+                        )
             else:
                 logger.error(f"Failed to get actual number of scans, got: {response}")
 
@@ -810,7 +878,9 @@ class DetectorIOC(PVGroup):
     async def state(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for state changes."""
         if self.acquisition_status.value == 1:
-            response = await self.tcp_client.get_parameter(self._pvs_to_param_names[self.state])
+            response = await self.tcp_client.get_parameter(
+                self._pvs_to_param_names[self.state]
+            )
             if response and "values" in response:
                 value = response["values"][0]["value"]
                 if value == "STANDBY" and value != instance.value:
@@ -917,7 +987,9 @@ class DetectorIOC(PVGroup):
                 await self._image_queue.put(None)
                 await asyncio.wait_for(self._file_writer_task, timeout=5.0)
             except asyncio.TimeoutError:
-                logger.warning("File writer task did not shutdown cleanly during cleanup")
+                logger.warning(
+                    "File writer task did not shutdown cleanly during cleanup"
+                )
                 self._file_writer_task.cancel()
             except Exception as e:
                 logger.error(f"Error during file writer cleanup: {e}")
