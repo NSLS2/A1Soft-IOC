@@ -782,14 +782,14 @@ class DetectorIOC(PVGroup):
         if value == "On":
             file_path = self.file_path.value
             if not file_path:
-                logger.error(f"File path not set, got: {file_path}")
-                return False
+                msg = f"File path not set, got: {file_path}"
+                logger.error(msg)
+                raise RuntimeError(msg)
             filename = self.file_name.value
             if not filename or not filename.endswith(".nxs"):
-                logger.error(
-                    f"File name must be set and end with .nxs, got: {filename}"
-                )
-                return False
+                msg = f"File name must be set and end with .nxs, got: {filename}"
+                logger.error(msg)
+                raise RuntimeError(msg)
 
             self._full_file_path = Path(file_path) / filename
 
