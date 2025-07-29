@@ -10,19 +10,6 @@ class SpectrumAnalyzer(Device, FileStoreBase):
     acquire = Cpt(EpicsSignal, "ACQUIRE")
     acquisition_status = Cpt(EpicsSignalRO, "ACQ:STATUS")
 
-    # Monitor control
-    monitor_on = Cpt(EpicsSignal, "MON:ON")
-    monitor_off = Cpt(EpicsSignal, "MON:OFF")
-    monitor_status = Cpt(EpicsSignalRO, "MON:STATUS")
-
-    # Detector control
-    detector_off = Cpt(EpicsSignal, "DET:OFF")
-    detector_status = Cpt(EpicsSignalRO, "DET:STATUS")
-
-    # Image acquisition
-    get_image = Cpt(EpicsSignal, "IMG:GET")
-    get_stats = Cpt(EpicsSignal, "ACQ:STATS")
-
     # Status and info
     connection_status = Cpt(EpicsSignalRO, "SYS:CONNECTED")
     last_error = Cpt(EpicsSignalRO, "SYS:ERROR")
@@ -101,7 +88,7 @@ class SpectrumAnalyzer(Device, FileStoreBase):
         self.stage_sigs.update(
             [
                 (self.acquire, 0),
-                (self.file_capture, 1),
+                (self.file_capture, 0),
             ]
         )
         self._status = None
@@ -110,14 +97,17 @@ class SpectrumAnalyzer(Device, FileStoreBase):
         return self.num_scans.get()
 
     def stage(self):
+        if self.file_capture.get() == "On":
+            raise RuntimeError("File capture must be off to stage the detector, otherwise the file will be corrupted")
+
         path = Path(f"{datetime.now().strftime(self.write_path_template)}")
         self.file_path.put(path)
 
         file_name = Path(self.file_name.get())
         self._fn = str(path / file_name)
-        self.filestore_spec = "AD_HDF5"
+        self.filestore_spec = "HDF5"
 
-        super()._generate_resource({"fpp": self.get_frames_per_point()})
+        super()._generate_resource({"dataset": "entry1/analyzer/data"})
 
         self.state.subscribe(self._stage_changed, run=False)
         return super().stage()
