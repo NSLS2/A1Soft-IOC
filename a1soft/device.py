@@ -92,7 +92,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         self.stage_sigs.update(
             [
                 (self.acquire, 0),
-                (self.file_capture, 0),
+                (self.file_capture, 1),
             ]
         )
         self._status = None
@@ -102,7 +102,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         self._full_path = None
 
     def stage(self):
-        if self.file_capture.get() == "On":
+        if self.file_capture.get(as_string=True) == "On":
             raise RuntimeError(
                 "File capture must be off to stage the detector, otherwise the file will be corrupted"
             )

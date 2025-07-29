@@ -774,6 +774,11 @@ class DetectorIOC(PVGroup):
         self, instance: PvpropertyData, value: Literal["On", "Off"]
     ) -> bool:
         """Start or stop file capture."""
+        if self.file_capture.value == value:
+            msg = f"File capture is already '{value}'"
+            logger.error(msg)
+            raise RuntimeError(msg)
+
         if value == "On":
             file_path = self.file_path.value
             if not file_path:
@@ -944,10 +949,12 @@ class DetectorIOC(PVGroup):
     @acquire.putter
     async def acquire(self, instance: Any, value: int) -> int:
         """Start acquisition when PV is written to."""
+        if self.acquire.value == value:
+            msg = f"Acquire is already '{value}'"
+            logger.error(msg)
+            raise RuntimeError(msg)
+
         if value > 0:
-            if instance.value > 0:
-                logger.warning("Acquisition already in progress")
-                return instance.value
             response: dict[str, Any] | None = await self.tcp_client.send_command(
                 "ACTION", action="START"
             )
@@ -959,10 +966,6 @@ class DetectorIOC(PVGroup):
                 logger.error("Failed to start acquisition")
                 return 0
         else:
-            if instance.value == 0:
-                logger.warning("Acquisition not in progress")
-                return 0
-
             response: dict[str, Any] | None = await self.tcp_client.send_command(
                 "ACTION", action="STOP"
             )
