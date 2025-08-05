@@ -892,10 +892,7 @@ class DetectorIOC(PVGroup):
         )
         if response and "values" in response:
             value = response["values"][0]["value"]
-            if value == "STANDBY" and value != instance.value:
-                if self.acquire.value == 1:
-                    await self.acquire.write(0)
-                await self.state.write(value)
+            await self.state.write(value)
         else:
             logger.error(f"Failed to get state update, got: {response}")
 
@@ -918,6 +915,14 @@ class DetectorIOC(PVGroup):
                 raise
             except Exception as e:
                 logger.error(f"Sync error: {e}")
+
+    @state.putter
+    async def state(self, instance: Any, value: Literal["STANDBY", "RUNNING", "MOVING"]) -> Literal["STANDBY", "RUNNING", "MOVING"]:
+        """Set the state of the detector."""
+        if value == "STANDBY" and value != instance.value:
+            if self.acquire.value == 1:
+                await self.acquire.write(0)
+        return value
 
     @connection_status.startup
     async def connection_status(self, instance: Any, async_lib: Any) -> None:
