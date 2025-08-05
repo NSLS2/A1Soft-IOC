@@ -893,10 +893,9 @@ class DetectorIOC(PVGroup):
         if response and "values" in response:
             value = response["values"][0]["value"]
             if value == "STANDBY" and value != instance.value:
-                await async_lib.library.gather(
-                    self.acquire.write(0),
-                    self.state.write(value),
-                )
+                if self.acquire.value == 1:
+                    await self.acquire.write(0)
+                await self.state.write(value)
         else:
             logger.error(f"Failed to get state update, got: {response}")
 
