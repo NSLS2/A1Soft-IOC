@@ -107,6 +107,12 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 "File capture must be off to stage the detector, otherwise the file will be corrupted"
             )
 
+<<<<<<< Updated upstream
+=======
+        if self.acquire.get(as_string=True) != "RUNNING":
+            self.stage_sigs.pop(self.acquire)
+
+>>>>>>> Stashed changes
         path = Path(self.file_path.get())
         file_name = Path(self.file_name.get())
         self._full_path = str(path / file_name)
