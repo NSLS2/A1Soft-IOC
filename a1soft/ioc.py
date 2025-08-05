@@ -919,7 +919,9 @@ class DetectorIOC(PVGroup):
                 logger.error(f"Sync error: {e}")
 
     @state.putter
-    async def state(self, instance: Any, value: Literal["STANDBY", "RUNNING", "MOVING"]) -> Literal["STANDBY", "RUNNING", "MOVING"]:
+    async def state(
+        self, instance: Any, value: Literal["STANDBY", "RUNNING", "MOVING"]
+    ) -> Literal["STANDBY", "RUNNING", "MOVING"]:
         """Set the state of the detector."""
         async with self._state_lock:
             if value == "STANDBY" and value != instance.value:
