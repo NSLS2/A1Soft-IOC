@@ -466,7 +466,8 @@ class DetectorIOC(PVGroup):
             logger.error(f"Failed to get new value of {param_name}")
             return None
         actual_value = result["value"]
-        if actual_value != value:
+        if ((isinstance(actual_value, float) and not np.isclose(actual_value, value))
+            or (not isinstance(actual_value, float) and actual_value != value)):
             logger.error(
                 f"Failed to set {param_name} to {value}, was set to {actual_value} instead."
             )
