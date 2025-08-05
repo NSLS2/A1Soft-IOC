@@ -471,7 +471,14 @@ class DetectorIOC(PVGroup):
             logger.error(
                 f"Failed to set {param_name} to {value}, was set to {actual_value} instead."
             )
+            raise ValueError(f"Failed to set {param_name} to {value}, was set to {actual_value} instead.")
         return actual_value
+
+    async def _param_write_swept_only(self, instance: PvpropertyData, value: Any) -> Any:
+        """Set a parameter and return the value that was actually set, but only if the parameter is swept."""
+        if self.acq_mode.value != "Swept":
+            raise ValueError("Parameter can only be set in swept mode")
+        return self._param_write(instance, value)
 
     # Acquisition control
     acquire = pvproperty(value=0, name="ACQUIRE")
@@ -509,13 +516,13 @@ class DetectorIOC(PVGroup):
 
     # Detector parameters
     state = pvproperty(name="STATE", dtype=ChannelType.STRING, read_only=True)
-    endX = pvproperty(put=_param_write, name="ENDX", dtype=int)
-    startY = pvproperty(put=_param_write, name="STARTY", dtype=int)
-    num_slice = pvproperty(put=_param_write, name="NUM_SLICE", dtype=int)
-    endY = pvproperty(put=_param_write, name="ENDY", dtype=int)
-    startX = pvproperty(put=_param_write, name="STARTX", dtype=int)
+    endX = pvproperty(name="ENDX", dtype=int, read_only=True)
+    startY = pvproperty(name="STARTY", dtype=int, read_only=True)
+    num_slice = pvproperty(name="NUM_SLICE", dtype=int, read_only=True)
+    endY = pvproperty(name="ENDY", dtype=int, read_only=True)
+    startX = pvproperty(name="STARTX", dtype=int, read_only=True)
     frames = pvproperty(put=_param_write, name="FRAMES", dtype=int)
-    num_steps = pvproperty(put=_param_write, name="NUM_STEPS", dtype=int)
+    num_steps = pvproperty(put=_param_write_swept_only, name="NUM_STEPS", dtype=int)
     pass_energy = pvproperty(
         put=_param_write,
         name="PASS_ENERGY",
@@ -536,21 +543,21 @@ class DetectorIOC(PVGroup):
         ),
     )
     num_scans = pvproperty(put=_param_write, name="NUM_SCANS", dtype=int)
-    reg_num = pvproperty(put=_param_write, name="REG_NUM", dtype=int)
-    tot_steps = pvproperty(put=_param_write, name="TOT_STEPS", dtype=int)
-    add_fms = pvproperty(put=_param_write, name="ADD_FMS", dtype=int)
+    reg_num = pvproperty(name="REG_NUM", dtype=int, read_only=True)
+    tot_steps = pvproperty(name="TOT_STEPS", dtype=int, read_only=True)
+    add_fms = pvproperty(name="ADD_FMS", dtype=int, read_only=True)
     act_scans = pvproperty(name="ACT_SCANS", dtype=int, read_only=True)
     dith_steps = pvproperty(put=_param_write, name="DITH_STEPS", dtype=int)
-    start_ke = pvproperty(put=_param_write, name="START_KE", dtype=float)
-    step_size = pvproperty(put=_param_write, name="STEP_SIZE", dtype=float)
-    end_ke = pvproperty(put=_param_write, name="END_KE", dtype=float)
-    spin_offs = pvproperty(put=_param_write, name="SPIN_OFFS", dtype=float)
-    width = pvproperty(put=_param_write, name="WIDTH", dtype=float)
-    center_ke = pvproperty(put=_param_write, name="CENTER_KE", dtype=float)
-    first_energy = pvproperty(put=_param_write, name="FIRST_ENERGY", dtype=float)
-    deflX = pvproperty(put=_param_write, name="DEFLX", dtype=float)
-    deflY = pvproperty(put=_param_write, name="DEFLY", dtype=float)
-    dbl10 = pvproperty(put=_param_write, name="DBL10", dtype=float)
+    start_ke = pvproperty(put=_param_write, name="START_KE", dtype=float, precision=6)
+    step_size = pvproperty(put=_param_write, name="STEP_SIZE", dtype=float, precision=6)
+    end_ke = pvproperty(put=_param_write, name="END_KE", dtype=float, precision=6)
+    spin_offs = pvproperty(put=_param_write, name="SPIN_OFFS", dtype=float, precision=6)
+    width = pvproperty(put=_param_write, name="WIDTH", dtype=float, precision=6)
+    center_ke = pvproperty(put=_param_write, name="CENTER_KE", dtype=float, precision=6)
+    first_energy = pvproperty(name="FIRST_ENERGY", dtype=float, read_only=True)
+    deflX = pvproperty(put=_param_write, name="DEFLX", dtype=float, precision=6)
+    deflY = pvproperty(put=_param_write, name="DEFLY", dtype=float, precision=6)
+    dbl10 = pvproperty(put=_param_write, name="DBL10", dtype=float, read_only=True)
     acq_mode = pvproperty(
         put=_param_write,
         name="ACQ_MODE",
@@ -558,10 +565,10 @@ class DetectorIOC(PVGroup):
         enum_strings=("Fixed", "Swept", "Dither"),
     )
     date_number = pvproperty(
-        put=_param_write, name="DATE_NUMBER", enum_strings=("FALSE", "TRUE"), dtype=bool
+        name="DATE_NUMBER", enum_strings=("FALSE", "TRUE"), dtype=bool, read_only=True
     )
     loc_det = pvproperty(
-        put=_param_write, name="LOC_DET", enum_strings=("FALSE", "TRUE"), dtype=bool
+        name="LOC_DET", enum_strings=("FALSE", "TRUE"), dtype=bool, read_only=True
     )
     xtab = pvproperty(
         put=_param_write, name="XTAB", enum_strings=("FALSE", "TRUE"), dtype=bool
@@ -569,44 +576,44 @@ class DetectorIOC(PVGroup):
     spin = pvproperty(
         put=_param_write, name="SPIN", enum_strings=("FALSE", "TRUE"), dtype=bool
     )
-    reg_name = pvproperty(put=_param_write, name="REG_NAME", dtype=ChannelType.STRING)
+    reg_name = pvproperty(name="REG_NAME", dtype=ChannelType.STRING, read_only=True)
     name_string = pvproperty(
-        put=_param_write, name="NAME_STRING", dtype=ChannelType.STRING
+        name="NAME_STRING", dtype=ChannelType.STRING, read_only=True
     )
     generated_name = pvproperty(
-        put=_param_write, name="GENERATED_NAME", dtype=ChannelType.STRING
+        name="GENERATED_NAME", dtype=ChannelType.STRING, read_only=True
     )
     comment1 = pvproperty(put=_param_write, name="COMMENT1", dtype=ChannelType.STRING)
     start_time = pvproperty(
         put=_param_write, name="START_TIME", dtype=ChannelType.STRING
     )
-    discr = pvproperty(put=_param_write, name="DISCR", dtype=int)
-    adc_mask = pvproperty(put=_param_write, name="ADC_MASK", dtype=int)
-    adc_offset = pvproperty(put=_param_write, name="ADC_OFFSET", dtype=int)
-    p_cnt_type = pvproperty(put=_param_write, name="P_CNT_TYPE", dtype=int)
-    pc_mask = pvproperty(put=_param_write, name="PC_MASK", dtype=int)
+    discr = pvproperty(name="DISCR", dtype=int, read_only=True)
+    adc_mask = pvproperty(name="ADC_MASK", dtype=int, read_only=True)
+    adc_offset = pvproperty(name="ADC_OFFSET", dtype=int, read_only=True)
+    p_cnt_type = pvproperty(name="P_CNT_TYPE", dtype=int, read_only=True)
+    pc_mask = pvproperty(name="PC_MASK", dtype=int, read_only=True)
     soft_bin_x = pvproperty(put=_param_write, name="SOFT_BIN_X", dtype=int)
     soft_bin_y = pvproperty(put=_param_write, name="SOFT_BIN_Y", dtype=int)
-    escale_mult = pvproperty(put=_param_write, name="ESCALE_MULT", dtype=float)
-    escale_max = pvproperty(put=_param_write, name="ESCALE_MAX", dtype=float)
-    escale_min = pvproperty(put=_param_write, name="ESCALE_MIN", dtype=float)
-    yscale_mult = pvproperty(put=_param_write, name="YSCALE_MULT", dtype=float)
-    yscale_max = pvproperty(put=_param_write, name="YSCALE_MAX", dtype=float)
-    yscale_min = pvproperty(put=_param_write, name="YSCALE_MIN", dtype=float)
+    escale_mult = pvproperty(put=_param_write, name="ESCALE_MULT", dtype=float, precision=6)
+    escale_max = pvproperty(name="ESCALE_MAX", dtype=float, read_only=True)
+    escale_min = pvproperty(name="ESCALE_MIN", dtype=float, read_only=True)
+    yscale_mult = pvproperty(name="YSCALE_MULT", dtype=float, read_only=True)
+    yscale_max = pvproperty(name="YSCALE_MAX", dtype=float, read_only=True)
+    yscale_min = pvproperty(name="YSCALE_MIN", dtype=float, read_only=True)
     yscale_name = pvproperty(
-        put=_param_write, name="YSCALE_NAME", dtype=ChannelType.STRING
+        name="YSCALE_NAME", dtype=ChannelType.STRING, read_only=True
     )
-    xscale_mult = pvproperty(put=_param_write, name="XSCALE_MULT", dtype=float)
-    xscale_max = pvproperty(put=_param_write, name="XSCALE_MAX", dtype=float)
-    xscale_min = pvproperty(put=_param_write, name="XSCALE_MIN", dtype=float)
+    xscale_mult = pvproperty(name="XSCALE_MULT", dtype=float, read_only=True)
+    xscale_max = pvproperty(name="XSCALE_MAX", dtype=float, read_only=True)
+    xscale_min = pvproperty(name="XSCALE_MIN", dtype=float, read_only=True)
     xscale_name = pvproperty(
-        put=_param_write, name="XSCALE_NAME", dtype=ChannelType.STRING
+        name="XSCALE_NAME", dtype=ChannelType.STRING, read_only=True
     )
-    psu_mode = pvproperty(put=_param_write, name="PSU_MODE", dtype=ChannelType.STRING)
+    psu_mode = pvproperty(name="PSU_MODE", dtype=ChannelType.STRING, read_only=True)
     over_r_arr = pvproperty(
-        put=_param_write, name="OVER_R_ARR", dtype=ChannelType.STRING
+        name="OVER_R_ARR", dtype=ChannelType.STRING, read_only=True
     )
-    over_range = pvproperty(put=_param_write, name="OVER_RANGE", dtype=int)
+    over_range = pvproperty(name="OVER_RANGE", dtype=int, read_only=True)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
