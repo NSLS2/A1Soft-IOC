@@ -100,7 +100,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
             raise RuntimeError(
                 "File capture must be off to stage the detector, otherwise the file will be corrupted"
             )
-        if self.acquire.get(as_string=True) != "RUNNING":
+        if self.acquire.get(as_string=True) == "RUNNING":
             self.stage_sigs.update(
                 [
                     (self.acquire, 0),
