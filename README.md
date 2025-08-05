@@ -35,19 +35,19 @@ Here are a list of the types of commands able to be processed by the TCP server.
 | Name | Type | Description | Read-Only? | 
 |------|------|-------------|------------|
 | state | enum | The state of the acquisition. Options are: RUNNING, MOVING, STANDBY | Y |
-| endX | int | <unknown> | N |
-| startY | int | <unknown> | N |
-| numSlice | int | <unknown> | N |
-| endY | int | <unknown> | N |
-| startX | int | <unknown> | N |
+| endX | int | <unknown> | Y |
+| startY | int | <unknown> | Y |
+| numSlice | int | <unknown> | Y |
+| endY | int | <unknown> | Y |
+| startX | int | <unknown> | Y |
 | frames | int | The number of frames to capture | N |
 | numSteps | int | <unknown> | N |
 | passEnergy | enum | Options are PE001, PE002, PE005, PE010, PE020, PE050 | N |
 | lensMode | enum | Options are L4Ang0d6, L4Ang0d8, L4Ang1d6, L4Ang3d9, L4MSpat5, L4Spat5 | N |
 | numScans | int | The number of scans to take | N |
-| regNum | int | <unknown> | N |
-| totSteps | int | <unknown> | N |
-| addFms | int | <unknown> | N |
+| regNum | int | <unknown> | Y |
+| totSteps | int | <unknown> | Y |
+| addFms | int | <unknown> | Y |
 | actScans | int | The number of actual scans taken | Y |
 | dithSteps | int | <unknown> | N |
 | startKe | float | The starting kinetic energy of the scan | N |
@@ -59,38 +59,38 @@ Here are a list of the types of commands able to be processed by the TCP server.
 | firstEnergy | float | <unknown> | N |
 | deflX | float | <unknown> | N |
 | deflY | float | <unknown> | N |
-| dbl10 | float | <unknown> | N |
+| dbl10 | float | <unknown> | Y |
 | acqMode | enum | Options are Fixed, Swept, Dither | N |
-| dateNumber | bool | <unknown> | N |
-| locDet | bool | <unknown> | N |
+| dateNumber | bool | <unknown> | Y |
+| locDet | bool | <unknown> | Y |
 | xtab | bool | <unknown> | N |
-| spin | bool | <unknown> | N |
-| regName | str | <unknown> | N |
-| nameString | str | <unknown> | N |
-| generatedName | str | <unknown> | N |
+| spin | bool | <unknown> | ? |
+| regName | str | <unknown> | Y |
+| nameString | str | <unknown> | Y |
+| generatedName | str | <unknown> | Y |
 | comment1 | str | <unknown> | N |
 | startTime | str | <unknown> | N |
-| discr | int | <unknown> | N |
-| adcMask | int | <unknown> | N |
-| adcOffset | int | <unknown> | N |
-| pCntType | int | <unknown> | N |
-| pcMask | int | <unknown> | N |
+| discr | int | <unknown> | Y |
+| adcMask | int | <unknown> | Y |
+| adcOffset | int | <unknown> | Y |
+| pCntType | int | <unknown> | Y |
+| pcMask | int | <unknown> | Y |
 | softBinX | int | <unknown> | N |
 | softBinY | int | <unknown> | N |
 | EScaleMult | float | <unknown> | N |
-| EScaleMax | float | <unknown> | N |
-| EScaleMin | float | <unknown> | N |
-| YScaleMult | float | <unknown> | N |
-| YScaleMax | float | <unknown> | N |
-| YScaleMin | float | <unknown> | N |
-| YScaleName | str | <unknown> | N |
-| XScaleMult | float | <unknown> | N |
-| XScaleMax | float | <unknown> | N |
-| XScaleMin | float | <unknown> | N |
-| XScaleName | str | <unknown> | N |
-| PsuMode | str | <unknown> | N |
-| OverRArr | str | <unknown> | N |
-| OverRange | int | <unknown> | N |
+| EScaleMax | float | <unknown> | Y |
+| EScaleMin | float | <unknown> | Y |
+| YScaleMult | float | <unknown> | Y |
+| YScaleMax | float | <unknown> | Y |
+| YScaleMin | float | <unknown> | Y |
+| YScaleName | str | <unknown> | Y |
+| XScaleMult | float | <unknown> | Y |
+| XScaleMax | float | <unknown> | Y |
+| XScaleMin | float | <unknown> | Y |
+| XScaleName | str | <unknown> | Y |
+| PsuMode | str | <unknown> | Y |
+| OverRArr | str | <unknown> | Y |
+| OverRange | int | <unknown> | Y |
 
 ## Actions
 
