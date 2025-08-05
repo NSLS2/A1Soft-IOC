@@ -887,19 +887,18 @@ class DetectorIOC(PVGroup):
     @state.scan(period=0.1)  # 100ms scan - state changes are infrequent
     async def state(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for state changes."""
-        if self.acquisition_status.value == 1:
-            response = await self.tcp_client.get_parameter(
-                self._pvs_to_param_names[self.state]
-            )
-            if response and "values" in response:
-                value = response["values"][0]["value"]
-                if value == "STANDBY" and value != instance.value:
-                    await async_lib.library.gather(
-                        self.acquire.write(0),
-                        self.state.write(value),
-                    )
-            else:
-                logger.error(f"Failed to get state update, got: {response}")
+        response = await self.tcp_client.get_parameter(
+            self._pvs_to_param_names[self.state]
+        )
+        if response and "values" in response:
+            value = response["values"][0]["value"]
+            if value == "STANDBY":
+                await async_lib.library.gather(
+                    self.acquire.write(0),
+                    self.state.write(value),
+                )
+        else:
+            logger.error(f"Failed to get state update, got: {response}")
 
     @sync.scan(period=1.0, use_scan_field=True)  # 1s - parameters change infrequently
     async def sync(self, instance: PvpropertyData, async_lib: Any) -> Any:
