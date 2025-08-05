@@ -621,6 +621,8 @@ class DetectorIOC(PVGroup):
         self._image_queue: asyncio.Queue = asyncio.Queue(
             maxsize=100
         )  # Buffer up to 100 images
+        self._state_lock = asyncio.Lock()
+        self._acquire_lock = asyncio.Lock()
         self._pvs_to_param_names: dict[PvpropertyData, str] = {
             self.state: "state",
             self.endX: "endX",
@@ -919,10 +921,11 @@ class DetectorIOC(PVGroup):
     @state.putter
     async def state(self, instance: Any, value: Literal["STANDBY", "RUNNING", "MOVING"]) -> Literal["STANDBY", "RUNNING", "MOVING"]:
         """Set the state of the detector."""
-        if value == "STANDBY" and value != instance.value:
-            if self.acquire.value == 1:
-                await self.acquire.write(0)
-        return value
+        async with self._state_lock:
+            if value == "STANDBY" and value != instance.value:
+                if self.acquire.value == 1:
+                    await self.acquire.write(0)
+            return value
 
     @connection_status.startup
     async def connection_status(self, instance: Any, async_lib: Any) -> None:
@@ -957,34 +960,35 @@ class DetectorIOC(PVGroup):
     @acquire.putter
     async def acquire(self, instance: Any, value: int) -> int:
         """Start acquisition when PV is written to."""
-        if self.acquire.value == value:
-            msg = f"Acquire is already '{value}'"
-            logger.error(msg)
-            raise RuntimeError(msg)
+        async with self._acquire_lock:
+            if instance.value == value:
+                msg = f"Acquire is already '{value}'"
+                logger.error(msg)
+                raise RuntimeError(msg)
 
-        if value > 0:
-            response: dict[str, Any] | None = await self.tcp_client.send_command(
-                "ACTION", action="START"
-            )
-            if response:
-                await self.acquisition_status.write(1)
-                if self.file_capture.value == "On":
-                    await self.num_processed.write(0)
+            if value > 0:
+                response: dict[str, Any] | None = await self.tcp_client.send_command(
+                    "ACTION", action="START"
+                )
+                if response:
+                    await self.acquisition_status.write(1)
+                    if self.file_capture.value == "On":
+                        await self.num_processed.write(0)
+                else:
+                    logger.error("Failed to start acquisition")
+                    return 0
             else:
-                logger.error("Failed to start acquisition")
-                return 0
-        else:
-            response: dict[str, Any] | None = await self.tcp_client.send_command(
-                "ACTION", action="STOP"
-            )
-            if response:
-                await self.acquisition_status.write(0)
-                logger.info("Acquisition stopped")
-            else:
-                logger.error("Failed to stop acquisition")
-                return self.acquire.value
+                response: dict[str, Any] | None = await self.tcp_client.send_command(
+                    "ACTION", action="STOP"
+                )
+                if response:
+                    await self.acquisition_status.write(0)
+                    logger.info("Acquisition stopped")
+                else:
+                    logger.error("Failed to stop acquisition")
+                    return instance.value
 
-        return value
+            return value
 
     async def cleanup(self) -> None:
         """Clean up background tasks and connections."""
