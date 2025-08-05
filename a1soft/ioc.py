@@ -466,12 +466,15 @@ class DetectorIOC(PVGroup):
             logger.error(f"Failed to get new value of {param_name}")
             return None
         actual_value = result["value"]
-        if ((isinstance(actual_value, float) and not np.isclose(actual_value, value))
-            or (not isinstance(actual_value, float) and actual_value != value)):
+        if (
+            isinstance(actual_value, float) and not np.isclose(actual_value, value)
+        ) or (not isinstance(actual_value, float) and actual_value != value):
             logger.error(
                 f"Failed to set {param_name} to {value}, was set to {actual_value} instead."
             )
-            raise ValueError(f"Failed to set {param_name} to {value}, was set to {actual_value} instead.")
+            raise ValueError(
+                f"Failed to set {param_name} to {value}, was set to {actual_value} instead."
+            )
         return actual_value
 
     # Acquisition control
@@ -588,7 +591,9 @@ class DetectorIOC(PVGroup):
     pc_mask = pvproperty(name="PC_MASK", dtype=int, read_only=True)
     soft_bin_x = pvproperty(put=_param_write, name="SOFT_BIN_X", dtype=int)
     soft_bin_y = pvproperty(put=_param_write, name="SOFT_BIN_Y", dtype=int)
-    escale_mult = pvproperty(put=_param_write, name="ESCALE_MULT", dtype=float, precision=6)
+    escale_mult = pvproperty(
+        put=_param_write, name="ESCALE_MULT", dtype=float, precision=6
+    )
     escale_max = pvproperty(name="ESCALE_MAX", dtype=float, read_only=True)
     escale_min = pvproperty(name="ESCALE_MIN", dtype=float, read_only=True)
     yscale_mult = pvproperty(name="YSCALE_MULT", dtype=float, read_only=True)
@@ -604,9 +609,7 @@ class DetectorIOC(PVGroup):
         name="XSCALE_NAME", dtype=ChannelType.STRING, read_only=True
     )
     psu_mode = pvproperty(name="PSU_MODE", dtype=ChannelType.STRING, read_only=True)
-    over_r_arr = pvproperty(
-        name="OVER_R_ARR", dtype=ChannelType.STRING, read_only=True
-    )
+    over_r_arr = pvproperty(name="OVER_R_ARR", dtype=ChannelType.STRING, read_only=True)
     over_range = pvproperty(name="OVER_RANGE", dtype=int, read_only=True)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
