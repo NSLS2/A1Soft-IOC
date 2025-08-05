@@ -892,7 +892,7 @@ class DetectorIOC(PVGroup):
         )
         if response and "values" in response:
             value = response["values"][0]["value"]
-            if value == "STANDBY":
+            if value == "STANDBY" and value != instance.value:
                 await async_lib.library.gather(
                     self.acquire.write(0),
                     self.state.write(value),
