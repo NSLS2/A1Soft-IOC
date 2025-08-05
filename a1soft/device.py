@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Optional
+import time as ttime
 
 import numpy as np
 from bluesky.protocols import WritesStreamAssets, Readable
@@ -119,6 +120,8 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         if self._status is None:
             return
         if value == "STANDBY" and old_value == "RUNNING":
+            # Settle time for the detector to transition properly
+            ttime.sleep(1.0)
             self._status.set_finished()
             self._index += 1
             self._status = None
