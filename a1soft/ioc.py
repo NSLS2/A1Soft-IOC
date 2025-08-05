@@ -557,7 +557,7 @@ class DetectorIOC(PVGroup):
     first_energy = pvproperty(name="FIRST_ENERGY", dtype=float, read_only=True)
     deflX = pvproperty(put=_param_write, name="DEFLX", dtype=float, precision=6)
     deflY = pvproperty(put=_param_write, name="DEFLY", dtype=float, precision=6)
-    dbl10 = pvproperty(put=_param_write, name="DBL10", dtype=float, read_only=True)
+    dbl10 = pvproperty(name="DBL10", dtype=float, read_only=True)
     acq_mode = pvproperty(
         put=_param_write,
         name="ACQ_MODE",
