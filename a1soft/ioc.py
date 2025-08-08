@@ -687,10 +687,15 @@ class DetectorIOC(PVGroup):
         self._file_handle: NXroot | None = None
 
     async def _get_current_frame(self) -> dict[str, Any] | None:
-        await self.tcp_client.send_command(
-            "ACTION", action="GET_IMAGE", get_response=False
+        _, response = await asyncio.gather(
+            self.tcp_client.send_command(
+                "ACTION", action="GET_IMAGE", get_response=False
+            ),
+            self.tcp_client.get_parameter(self._pvs_to_param_names[self.deflX]),
         )
+
         data = await self.tcp_client.get_data()
+        data["deflX"] = response["values"][0]["value"]
         if data:
             return data
         else:
@@ -709,6 +714,11 @@ class DetectorIOC(PVGroup):
             data_field = detector["data"]
         else:
             data_field = None
+
+        if "deflX" in detector:
+            deflx_field = detector["deflX"]
+        else:
+            deflx_field = None
 
         while True:
             try:
@@ -729,6 +739,15 @@ class DetectorIOC(PVGroup):
                     )
                     detector["data"] = data_field
 
+                if deflx_field is None:
+                    deflx_field = NXfield(
+                        name="deflector_x",
+                        shape=(0,),
+                        dtype=np.float64,
+                        maxshape=(None,),
+                    )
+                    detector["deflector_x"] = deflx_field
+
                 # We continually overwrite the last frame in the data field in-case of
                 # an error during acquisition.
                 # The index value is incremented when acquisition state transitions to STANDBY
@@ -737,7 +756,11 @@ class DetectorIOC(PVGroup):
                 size = index + 1
                 if data_field.shape[0] < size:
                     data_field.resize(size, axis=0)
+                if deflx_field.shape[0] < size:
+                    deflx_field.resize(size, axis=0)
+
                 data_field[index, :, :] = data["channel_2_data"]
+                deflx_field[index] = data["deflX"]
                 logger.info(f"Writing frame {size} to file")
                 # Update the file immediately to avoid losing data
                 self._file_handle.nxfile.file.flush()
