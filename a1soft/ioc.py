@@ -739,6 +739,7 @@ class DetectorIOC(PVGroup):
             deflx_field = None
 
         first_pass = True
+
         while True:
             try:
                 # Wait for data from the queue
@@ -766,8 +767,8 @@ class DetectorIOC(PVGroup):
                         dtype=np.float64,
                         maxshape=(None,),
                     )
-                    detector["deflector_x"] = deflx_field
-
+                    detector["deflector_x"] = deflx_field    
+                
                 # On the first pass, capture the run metadata and write it to the file
                 # This is done only if the data field is empty
                 if first_pass:

@@ -9,7 +9,7 @@ dependencies = [
   "caproto >=0.4.2rc1,!=1.2.0",
   "ophyd",
   "bluesky",
-  "nexusformat",
+  "nexusformat", "build>=1.3.0,<2",
 ]
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,12 +35,10 @@ version = "0.1.0"
 [tool.pixi.tasks]
 
 [tool.pixi.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.10,<3.12"
 nexusformat = "*"
 bluesky = "*"
-
-[tool.pixi.pypi-dependencies]
-a1soft = { path = ".", editable = true }
+curio = ">=1.4,<2"
 
 [tool.pixi.environments]
 default = { solve-group = "default" }
@@ -53,3 +51,4 @@ ipython = "*"
 pre-commit = "*"
 ruff = "*"
 pyright = "*"
+
