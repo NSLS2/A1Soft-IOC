@@ -772,14 +772,6 @@ class DetectorIOC(PVGroup):
                 # This is done only if the data field is empty
                 if first_pass:
                     self._write_metadata_to_file()
-                    dfl = NXlink(self._file_handle.entry.instrument.analyzer.deflector_x)
-                    an = NXlink(self._file_handle.entry.instrument.analyzer.angles)
-                    en = NXlink(self._file_handle.entry.instrument.analyzer.energies)
-                    counts = NXlink(self._file_handle.entry.instrument.analyzer.data)
-                    self._file_handle.entry.data = NXdata(
-                        counts,
-                        [dfl, an, en],
-                    )
                     first_pass = False
 
                 # We continually overwrite the last frame in the data field in-case of
@@ -888,6 +880,16 @@ class DetectorIOC(PVGroup):
                     logger.warning("File writer task did not shutdown cleanly")
                     self._file_writer_task.cancel()
                 self._file_writer_task = None
+            
+            # Add the final data field to the file
+            dfl = NXlink(self._file_handle.entry.instrument.analyzer.deflector_x)
+            an = NXlink(self._file_handle.entry.instrument.analyzer.angles)
+            en = NXlink(self._file_handle.entry.instrument.analyzer.energies)
+            counts = NXlink(self._file_handle.entry.instrument.analyzer.data)
+            self._file_handle.entry.data = NXdata(
+                counts,
+                [dfl, an, en],
+            )
 
             self._full_file_path = None
             self._file_handle.close()
