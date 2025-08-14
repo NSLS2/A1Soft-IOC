@@ -854,8 +854,8 @@ class DetectorIOC(PVGroup):
             self._image_queue = asyncio.Queue(maxsize=100)
             self._file_handle = nxopen(self._full_file_path, "a")
             self._create_file_structure(self._file_handle)
-            if "data" in self._file_handle["entry1"]["analyzer"]:
-                size = self._file_handle["entry1"]["analyzer"]["data"].shape[0]
+            if "data" in self._file_handle.entry.instrument.analyzer:
+                size = self._file_handle.entry.instrument.analyzer["data"].shape[0]
                 logger.warning(f"Appending to existing file with {size} frames")
                 await self.num_captured.write(size)
             else:
