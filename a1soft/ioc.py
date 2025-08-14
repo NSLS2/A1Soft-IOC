@@ -12,7 +12,7 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Any, Literal
 
-from nexusformat.nexus import NXdata, NXfield, NXroot, NXentry, nxopen, NXdetector, NXinstrument
+from nexusformat.nexus import NXdata, NXfield, NXroot, NXentry, nxopen, NXdetector, NXinstrument, NXlink
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyData
 from caproto import ChannelType
 import numpy as np
@@ -710,16 +710,16 @@ class DetectorIOC(PVGroup):
         analyzer = self._file_handle.entry.instrument.analyzer
 
         analyzer.angles = NXfield(
-            np.linspace(self.xscale_min.value, self.xscale_max.value, self.num_slice.value),
+            np.linspace(self.xscale_min.value, self.xscale_max.value, self.num_slice.value, endpoint=False),
             name="angles",
             units="deg",
         )
         analyzer.energies = NXfield(
-            np.linspace(self.start_ke.value, self.end_ke.value, self.num_steps.value),
+            np.linspace(self.start_ke.value, self.end_ke.value, self.num_steps.value, endpoint=False),
             name="energies",
             units="eV",
         )
-
+        
     async def _background_file_writer(self) -> None:
         """Background task that continuously writes image data from queue to file."""
         if self._file_handle is None:
@@ -733,8 +733,8 @@ class DetectorIOC(PVGroup):
         else:
             data_field = None
 
-        if "deflX" in detector:
-            deflx_field = detector["deflX"]
+        if "deflector_x" in detector:
+            deflx_field = detector["deflector_x"]
         else:
             deflx_field = None
 
@@ -744,11 +744,6 @@ class DetectorIOC(PVGroup):
                 # Wait for data from the queue
                 item = await self._image_queue.get()
 
-                # On the first pass, capture the run metadata and write it to the file
-                # This is done only if the data field is empty
-                if first_pass and (data_field is None or data_field.shape[0] == 0):
-                    self._write_metadata_to_file()
-                    first_pass = False
 
                 # Check for shutdown signal (None is used as sentinel)
                 if item is None:
@@ -772,6 +767,20 @@ class DetectorIOC(PVGroup):
                         maxshape=(None,),
                     )
                     detector["deflector_x"] = deflx_field
+
+                # On the first pass, capture the run metadata and write it to the file
+                # This is done only if the data field is empty
+                if first_pass:
+                    self._write_metadata_to_file()
+                    dfl = NXlink(self._file_handle.entry.instrument.analyzer.deflector_x)
+                    an = NXlink(self._file_handle.entry.instrument.analyzer.angles)
+                    en = NXlink(self._file_handle.entry.instrument.analyzer.energies)
+                    counts = NXlink(self._file_handle.entry.instrument.analyzer.data)
+                    self._file_handle.entry.data = NXdata(
+                        counts,
+                        [dfl, an, en],
+                    )
+                    first_pass = False
 
                 # We continually overwrite the last frame in the data field in-case of
                 # an error during acquisition.
