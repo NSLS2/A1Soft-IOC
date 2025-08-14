@@ -12,7 +12,7 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Any, Literal
 
-from nexusformat.nexus import NXdata, NXfield, NXroot, NXentry, nxopen
+from nexusformat.nexus import NXdata, NXfield, NXroot, NXentry, nxopen, NXdetector, NXinstrument
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyData
 from caproto import ChannelType
 import numpy as np
@@ -702,13 +702,31 @@ class DetectorIOC(PVGroup):
             logger.warning("Failed to read image data")
         return None
 
+    def _write_metadata_to_file(self) -> None:
+        """Write metadata to file that is not changed during the run."""
+        if self._file_handle is None:
+            raise RuntimeError("File handle not initialized")
+        
+        analyzer = self._file_handle.entry.instrument.analyzer
+
+        analyzer.angles = NXfield(
+            np.linspace(self.xscale_min.value, self.xscale_max.value, self.num_slice.value),
+            name="angles",
+            units="deg",
+        )
+        analyzer.energies = NXfield(
+            np.linspace(self.start_ke.value, self.end_ke.value, self.num_steps.value),
+            name="energies",
+            units="eV",
+        )
+
     async def _background_file_writer(self) -> None:
         """Background task that continuously writes image data from queue to file."""
         if self._file_handle is None:
             raise RuntimeError("File handle not initialized")
 
-        entry = self._file_handle["entry1"]
-        detector = entry["analyzer"]
+        entry = self._file_handle.entry
+        detector = entry.instrument.analyzer
 
         if "data" in detector:
             data_field = detector["data"]
@@ -720,10 +738,17 @@ class DetectorIOC(PVGroup):
         else:
             deflx_field = None
 
+        first_pass = True
         while True:
             try:
                 # Wait for data from the queue
                 item = await self._image_queue.get()
+
+                # On the first pass, capture the run metadata and write it to the file
+                # This is done only if the data field is empty
+                if first_pass and (data_field is None or data_field.shape[0] == 0):
+                    self._write_metadata_to_file()
+                    first_pass = False
 
                 # Check for shutdown signal (None is used as sentinel)
                 if item is None:
@@ -793,13 +818,14 @@ class DetectorIOC(PVGroup):
         else:
             logger.error("Failed to get current frame for file writing")
 
-    def _create_file_structure(self, file_handle: NXroot) -> None:
-        if "entry1" not in file_handle:
-            file_handle["entry1"] = NXentry(name="entry1")
-        if "analyzer" not in file_handle["entry1"]:
-            file_handle["entry1"]["analyzer"] = NXdata(name="analyzer")
+    def _create_file_structure(self, root: NXroot) -> None:
+        if "entry" not in root:
+            root.entry = NXentry(name="entry")
+        if "instrument" not in root.entry:
+            root.entry.instrument = NXinstrument(name="instrument")
+        if "analyzer" not in root.entry.instrument:
+            root.entry.instrument.analyzer = NXdetector(name="analyzer")
 
-    @file_capture.putter
     async def file_capture(
         self, instance: PvpropertyData, value: Literal["On", "Off"]
     ) -> bool:
