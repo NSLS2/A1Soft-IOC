@@ -826,6 +826,7 @@ class DetectorIOC(PVGroup):
         if "analyzer" not in root.entry.instrument:
             root.entry.instrument.analyzer = NXdetector(name="analyzer")
 
+    @file_capture.putter
     async def file_capture(
         self, instance: PvpropertyData, value: Literal["On", "Off"]
     ) -> bool:
