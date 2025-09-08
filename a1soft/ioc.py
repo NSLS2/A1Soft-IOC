@@ -504,11 +504,13 @@ class DetectorIOC(PVGroup):
         value="",
         name="FILE:NAME",
         dtype=str,
+        max_length=255,
     )
     file_path = pvproperty(
         value="",
         name="FILE:PATH",
         dtype=str,
+        max_length=255,
     )
     file_status = pvproperty(
         value="", name="FILE:STATUS", read_only=True, dtype=ChannelType.STRING
