@@ -51,4 +51,5 @@ ipython = "*"
 pre-commit = "*"
 ruff = "*"
 pyright = "*"
+nexpy = ">=1.0.10,<2"
 

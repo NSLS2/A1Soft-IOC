@@ -819,6 +819,8 @@ class DetectorIOC(PVGroup):
                 # This is done only if the data field is empty
                 if first_pass:
                     self._write_metadata_to_file()
+                    # Set SWMR mode to True after writing to file
+                    self._file_handle.nxfile.file.swmr_mode = True
                     first_pass = False
 
                 # We continually overwrite the last frame in the data field in-case of
@@ -905,7 +907,6 @@ class DetectorIOC(PVGroup):
             # Create fresh queue for this capture session
             self._image_queue = asyncio.Queue(maxsize=100)
             self._file_handle = nxopen(self._full_file_path, "a", libver="latest")
-            self._file_handle.nxfile.file.swmr_mode = True
             self._create_file_structure(self._file_handle)
             if "data" in self._file_handle.entry.instrument.analyzer:
                 size = self._file_handle.entry.instrument.analyzer["data"].shape[0]
