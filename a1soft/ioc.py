@@ -483,6 +483,11 @@ class DetectorIOC(PVGroup):
 
     # Detector control
     det_off = pvproperty(value=False, name="DET:OFF", dtype=bool)
+    """Turn off the detector"""
+    max_count = pvproperty(value=0, name="DET:MAX_COUNT", dtype=int)
+    """Maximum value of a single pixel of the detector"""
+    max_count_threshold = pvproperty(value=155, name="DET:MAX_COUNT_THRESH", dtype=int)
+    """Threshold for the maximum value of a single pixel of the detector"""
 
     # File writing
     file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
@@ -697,8 +702,11 @@ class DetectorIOC(PVGroup):
         )
 
         data = await self.tcp_client.get_data()
-        data["deflX"] = response["values"][0]["value"]
+        # TODO: Compute (or get) the maximum count of the detector
+        # Shut off the detector if the maximum count exceeds a threshold
         if data:
+            self.max_count.write(np.max(data["channel_2_data"]))
+            data["deflX"] = response["values"][0]["value"]
             return data
         else:
             logger.warning("Failed to read image data")
@@ -1068,6 +1076,13 @@ class DetectorIOC(PVGroup):
             if not response:
                 logger.error("Failed to turn off the detector")
                 return False
+        return value
+
+    @max_count.putter
+    async def max_count(self, instance: Any, value: int) -> int:
+        """Set the maximum count of the detector."""
+        if value > self.max_count_threshold.value:
+            await self.det_off.write(True)
         return value
 
     async def cleanup(self) -> None:
