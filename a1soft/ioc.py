@@ -504,13 +504,13 @@ class DetectorIOC(PVGroup):
         value="",
         name="FILE:NAME",
         dtype=str,
-        max_length=255,
+        max_length=1024,
     )
     file_path = pvproperty(
         value="",
         name="FILE:PATH",
         dtype=str,
-        max_length=255,
+        max_length=1024,
     )
     file_status = pvproperty(
         value="", name="FILE:STATUS", read_only=True, dtype=ChannelType.STRING
@@ -732,7 +732,7 @@ class DetectorIOC(PVGroup):
         data = await self.tcp_client.get_data()
         if data:
             # FIXME: May have to use the live data port to get the max count more frequently
-            self.max_count.write(np.max(data["channel_2_data"]))
+            await self.max_count.write(np.max(data["channel_2_data"]))
             data["deflX"] = response["values"][0]["value"]
             return data
         else:
@@ -904,7 +904,8 @@ class DetectorIOC(PVGroup):
 
             # Create fresh queue for this capture session
             self._image_queue = asyncio.Queue(maxsize=100)
-            self._file_handle = nxopen(self._full_file_path, "a", swmr=True)
+            self._file_handle = nxopen(self._full_file_path, "a")
+            self._file_handle.nxfile.file.swmr_mode = True
             self._create_file_structure(self._file_handle)
             if "data" in self._file_handle.entry.instrument.analyzer:
                 size = self._file_handle.entry.instrument.analyzer["data"].shape[0]
@@ -1118,7 +1119,9 @@ class DetectorIOC(PVGroup):
     async def max_count(self, instance: Any, value: int) -> int:
         """Set the maximum count of the detector."""
         if value > self.max_count_threshold.value:
-            logger.warning(f"Maximum count threshold exceeded: {value} > {self.max_count_threshold.value}. Turning off detector!")
+            logger.warning(
+                f"Maximum count threshold exceeded: {value} > {self.max_count_threshold.value}. Turning off detector!"
+            )
             await self.acquire.write(0)
             await self.det_off.write(True)
         return value
