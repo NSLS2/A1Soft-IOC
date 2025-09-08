@@ -12,7 +12,16 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Any, Literal
 
-from nexusformat.nexus import NXdata, NXfield, NXroot, NXentry, nxopen, NXdetector, NXinstrument, NXlink
+from nexusformat.nexus import (
+    NXdata,
+    NXfield,
+    NXroot,
+    NXentry,
+    nxopen,
+    NXdetector,
+    NXinstrument,
+    NXlink,
+)
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyData
 from caproto import ChannelType
 import numpy as np
@@ -532,7 +541,16 @@ class DetectorIOC(PVGroup):
         put=_param_write,
         name="PASS_ENERGY",
         dtype=ChannelType.ENUM,
-        enum_strings=("PE001", "PE002", "PE005", "PE010", "PE020", "PE050", "PE100", "PE200"),
+        enum_strings=(
+            "PE001",
+            "PE002",
+            "PE005",
+            "PE010",
+            "PE020",
+            "PE050",
+            "PE100",
+            "PE200",
+        ),
     )
     lens_mode = pvproperty(
         put=_param_write,
@@ -716,20 +734,30 @@ class DetectorIOC(PVGroup):
         """Write metadata to file that is not changed during the run."""
         if self._file_handle is None:
             raise RuntimeError("File handle not initialized")
-        
+
         analyzer = self._file_handle.entry.instrument.analyzer
 
         analyzer.angles = NXfield(
-            np.linspace(self.xscale_min.value, self.xscale_max.value, self.num_slice.value, endpoint=True),
+            np.linspace(
+                self.xscale_min.value,
+                self.xscale_max.value,
+                self.num_slice.value,
+                endpoint=True,
+            ),
             name="angles",
             units="deg",
         )
         analyzer.energies = NXfield(
-            np.linspace(self.escale_min.value, self.escale_max.value, self.num_steps.value, endpoint=True),
+            np.linspace(
+                self.escale_min.value,
+                self.escale_max.value,
+                self.num_steps.value,
+                endpoint=True,
+            ),
             name="energies",
             units="eV",
         )
-        
+
     async def _background_file_writer(self) -> None:
         """Background task that continuously writes image data from queue to file."""
         if self._file_handle is None:
@@ -755,7 +783,6 @@ class DetectorIOC(PVGroup):
                 # Wait for data from the queue
                 item = await self._image_queue.get()
 
-
                 # Check for shutdown signal (None is used as sentinel)
                 if item is None:
                     break
@@ -777,8 +804,8 @@ class DetectorIOC(PVGroup):
                         dtype=np.float64,
                         maxshape=(None,),
                     )
-                    detector["deflector_x"] = deflx_field    
-                
+                    detector["deflector_x"] = deflx_field
+
                 # On the first pass, capture the run metadata and write it to the file
                 # This is done only if the data field is empty
                 if first_pass:
@@ -895,7 +922,7 @@ class DetectorIOC(PVGroup):
                     logger.warning("File writer task did not shutdown cleanly")
                     self._file_writer_task.cancel()
                 self._file_writer_task = None
-            
+
             # Add the final data field to the file
             dfl = NXlink(self._file_handle.entry.instrument.analyzer.deflector_x)
             an = NXlink(self._file_handle.entry.instrument.analyzer.angles)
