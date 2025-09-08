@@ -1120,6 +1120,8 @@ class DetectorIOC(PVGroup):
     async def max_count(self, instance: Any, value: int) -> int:
         """Set the maximum count of the detector."""
         if value > self.max_count_threshold.value:
+            logger.warning(f"Maximum count threshold exceeded: {value} > {self.max_count_threshold.value}. Turning off detector!")
+            await self.acquire.write(0)
             await self.det_off.write(True)
         return value
 
