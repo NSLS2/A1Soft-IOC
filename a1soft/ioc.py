@@ -503,6 +503,7 @@ class DetectorIOC(PVGroup):
     file_name = pvproperty(
         value="",
         name="FILE:NAME",
+        dtype=str,
         string_encoding="utf-8",
         report_as_string=True,
         max_length=255,
@@ -510,6 +511,7 @@ class DetectorIOC(PVGroup):
     file_path = pvproperty(
         value="",
         name="FILE:PATH",
+        dtype=str,
         string_encoding="utf-8",
         report_as_string=True,
         max_length=255,
