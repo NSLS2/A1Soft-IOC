@@ -904,7 +904,7 @@ class DetectorIOC(PVGroup):
 
             # Create fresh queue for this capture session
             self._image_queue = asyncio.Queue(maxsize=100)
-            self._file_handle = nxopen(self._full_file_path, "a")
+            self._file_handle = nxopen(self._full_file_path, "a", libver="latest")
             self._file_handle.nxfile.file.swmr_mode = True
             self._create_file_structure(self._file_handle)
             if "data" in self._file_handle.entry.instrument.analyzer:
