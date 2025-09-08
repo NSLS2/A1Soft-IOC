@@ -481,6 +481,9 @@ class DetectorIOC(PVGroup):
     acquire = pvproperty(value=0, name="ACQUIRE")
     acquisition_status = pvproperty(value=0, name="ACQ:STATUS", read_only=True)
 
+    # Detector control
+    det_off = pvproperty(value=False, name="DET:OFF", dtype=bool)
+
     # File writing
     file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
     file_name = pvproperty(value="", name="FILE:NAME", dtype=ChannelType.STRING)
@@ -710,12 +713,12 @@ class DetectorIOC(PVGroup):
         analyzer = self._file_handle.entry.instrument.analyzer
 
         analyzer.angles = NXfield(
-            np.linspace(self.xscale_min.value, self.xscale_max.value, self.num_slice.value, endpoint=False),
+            np.linspace(self.xscale_min.value, self.xscale_max.value, self.num_slice.value, endpoint=True),
             name="angles",
             units="deg",
         )
         analyzer.energies = NXfield(
-            np.linspace(self.start_ke.value, self.end_ke.value, self.num_steps.value, endpoint=False),
+            np.linspace(self.start_ke.value, self.end_ke.value, self.num_steps.value, endpoint=True),
             name="energies",
             units="eV",
         )
@@ -850,11 +853,15 @@ class DetectorIOC(PVGroup):
                 logger.error(msg)
                 raise RuntimeError(msg)
 
-            self._full_file_path = Path(file_path) / filename
+            path = Path(file_path)
+            if not path.exists():
+                path.mkdir(parents=True, exist_ok=True)
+
+            self._full_file_path = path / filename
 
             # Create fresh queue for this capture session
             self._image_queue = asyncio.Queue(maxsize=100)
-            self._file_handle = nxopen(self._full_file_path, "a")
+            self._file_handle = nxopen(self._full_file_path, "a", swmr=True)
             self._create_file_structure(self._file_handle)
             if "data" in self._file_handle.entry.instrument.analyzer:
                 size = self._file_handle.entry.instrument.analyzer["data"].shape[0]
@@ -1053,6 +1060,16 @@ class DetectorIOC(PVGroup):
                     return instance.value
 
             return value
+
+    @det_off.putter
+    async def det_off(self, instance: Any, value: bool) -> bool:
+        """Turn off the detector."""
+        if value:
+            response = await self.tcp_client.send_command("ACTION", action="DET_OFF")
+            if not response:
+                logger.error("Failed to turn off the detector")
+                return False
+        return value
 
     async def cleanup(self) -> None:
         """Clean up background tasks and connections."""
