@@ -500,8 +500,20 @@ class DetectorIOC(PVGroup):
 
     # File writing
     file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
-    file_name = pvproperty(value="", name="FILE:NAME", dtype=ChannelType.STRING)
-    file_path = pvproperty(value="", name="FILE:PATH", dtype=ChannelType.STRING)
+    file_name = pvproperty(
+        value="",
+        name="FILE:NAME",
+        string_encoding="utf-8",
+        report_as_string=True,
+        max_length=255,
+    )
+    file_path = pvproperty(
+        value="",
+        name="FILE:PATH",
+        string_encoding="utf-8",
+        report_as_string=True,
+        max_length=255,
+    )
     file_status = pvproperty(
         value="", name="FILE:STATUS", read_only=True, dtype=ChannelType.STRING
     )
