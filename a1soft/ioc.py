@@ -527,19 +527,18 @@ class DetectorIOC(PVGroup):
         put=_param_write,
         name="PASS_ENERGY",
         dtype=ChannelType.ENUM,
-        enum_strings=("PE001", "PE002", "PE005", "PE010", "PE020", "PE050"),
+        enum_strings=("PE001", "PE002", "PE005", "PE010", "PE020", "PE050", "PE100", "PE200"),
     )
     lens_mode = pvproperty(
         put=_param_write,
         name="LENS_MODE",
         dtype=ChannelType.ENUM,
         enum_strings=(
-            "L4Ang0d6",
             "L4Ang0d8",
             "L4Ang1d6",
             "L4Ang3d9",
+            "L4MAng0d7",
             "L4MSpat5",
-            "L4Spat5",
         ),
     )
     num_scans = pvproperty(put=_param_write, name="NUM_SCANS", dtype=int)
@@ -562,7 +561,7 @@ class DetectorIOC(PVGroup):
         put=_param_write,
         name="ACQ_MODE",
         dtype=ChannelType.ENUM,
-        enum_strings=("Fixed", "Swept", "Dither"),
+        enum_strings=("Fixed", "FixedTrigd", "Swept", "Dither"),
     )
     date_number = pvproperty(
         name="DATE_NUMBER", enum_strings=("FALSE", "TRUE"), dtype=bool, read_only=True
@@ -718,7 +717,7 @@ class DetectorIOC(PVGroup):
             units="deg",
         )
         analyzer.energies = NXfield(
-            np.linspace(self.start_ke.value, self.end_ke.value, self.num_steps.value, endpoint=True),
+            np.linspace(self.escale_min.value, self.escale_max.value, self.num_steps.value, endpoint=True),
             name="energies",
             units="eV",
         )
