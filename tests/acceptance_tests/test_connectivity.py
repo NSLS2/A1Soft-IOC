@@ -35,7 +35,7 @@ class TestBasicConnectivity:
         last_sync_before = device.last_sync.get()
         
         # Enable sync and wait for it to happen
-        device.sync.set("ON")
+        device.sync.set("ON").wait(1.0)
         time.sleep(2.0)  # Wait for at least one sync cycle
         
         # Verify sync occurred

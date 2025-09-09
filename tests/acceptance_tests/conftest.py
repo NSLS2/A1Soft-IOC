@@ -36,11 +36,9 @@ def analyzer_device():
     # Cleanup - ensure acquisition is stopped and file capture is off
     try:
         if device.acquire.get():
-            device.acquire.set(0)
-            time.sleep(1.0)
+            device.acquire.set(0).wait(1.0)
         if device.file_capture.get(as_string=True) == "On":
-            device.file_capture.set("Off")
-            time.sleep(1.0)
+            device.file_capture.set("Off").wait(1.0)
     except Exception:
         pass  # Best effort cleanup
 
@@ -60,7 +58,7 @@ def detector_in_standby(analyzer_device):
     
     # Stop any running acquisition
     if device.acquire.get():
-        device.acquire.set(0)
+        device.acquire.set(0).wait(1.0)
         # Wait for state to transition to STANDBY
         start_time = time.time()
         while device.state.get() != "STANDBY" and (time.time() - start_time) < 10:
@@ -68,8 +66,7 @@ def detector_in_standby(analyzer_device):
     
     # Ensure file capture is off
     if device.file_capture.get(as_string=True) == "On":
-        device.file_capture.set("Off")
-        time.sleep(0.5)
+        device.file_capture.set("Off").wait(1.0)
     
     return device
 

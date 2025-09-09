@@ -19,14 +19,13 @@ class TestParameterSetting:
         original_frames = device.frames.get()
         new_frames = original_frames + 1 if original_frames < 100 else original_frames - 1
         
-        device.frames.set(new_frames)
-        time.sleep(0.5)  # Allow time for the set operation
+        device.frames.set(new_frames).wait(0.5)
         
         actual_frames = device.frames.get()
         assert actual_frames == new_frames, f"Expected frames={new_frames}, got {actual_frames}"
         
         # Restore original value
-        device.frames.set(original_frames)
+        device.frames.set(original_frames).wait(0.5)
 
     def test_float_parameter_setting(self, detector_in_standby):
         """Test setting float parameters."""
@@ -36,15 +35,14 @@ class TestParameterSetting:
         original_start_ke = device.start_ke.get()
         new_start_ke = original_start_ke + 0.1 if original_start_ke < 1000 else original_start_ke - 0.1
         
-        device.start_ke.set(new_start_ke)
-        time.sleep(0.5)
+        device.start_ke.set(new_start_ke).wait(0.5)
         
         actual_start_ke = device.start_ke.get()
         # Allow for small floating point differences
         assert abs(actual_start_ke - new_start_ke) < 0.01, f"Expected start_ke≈{new_start_ke}, got {actual_start_ke}"
         
         # Restore original value
-        device.start_ke.set(original_start_ke)
+        device.start_ke.set(original_start_ke).wait(0.5)
 
     def test_enum_parameter_setting(self, detector_in_standby):
         """Test setting enum parameters."""
@@ -65,14 +63,13 @@ class TestParameterSetting:
                 break
         
         if new_pass_energy:
-            device.pass_energy.set(new_pass_energy)
-            time.sleep(0.5)
+            device.pass_energy.set(new_pass_energy).wait(0.5)
             
             actual_pass_energy = device.pass_energy.get(as_string=True)
             assert actual_pass_energy == new_pass_energy, f"Expected {new_pass_energy}, got {actual_pass_energy}"
             
             # Restore original value
-            device.pass_energy.set(original_pass_energy)
+            device.pass_energy.set(original_pass_energy).wait(0.5)
 
     def test_boolean_parameter_setting(self, detector_in_standby):
         """Test setting boolean parameters."""
@@ -82,14 +79,13 @@ class TestParameterSetting:
         original_spin = device.spin.get()
         new_spin = not original_spin
         
-        device.spin.set(new_spin)
-        time.sleep(0.5)
+        device.spin.set(new_spin).wait(0.5)
         
         actual_spin = device.spin.get()
         assert actual_spin == new_spin, f"Expected spin={new_spin}, got {actual_spin}"
         
         # Restore original value
-        device.spin.set(original_spin)
+        device.spin.set(original_spin).wait(0.5)
 
     def test_string_parameter_setting(self, detector_in_standby):
         """Test setting string parameters."""
@@ -99,14 +95,13 @@ class TestParameterSetting:
         original_comment = device.comment1.get()
         new_comment = "Test comment from acceptance test"
         
-        device.comment1.set(new_comment)
-        time.sleep(0.5)
+        device.comment1.set(new_comment).wait(0.5)
         
         actual_comment = device.comment1.get()
         assert actual_comment == new_comment, f"Expected '{new_comment}', got '{actual_comment}'"
         
         # Restore original value
-        device.comment1.set(original_comment)
+        device.comment1.set(original_comment).wait(0.5)
 
     def test_parameter_validation(self, detector_in_standby):
         """Test that parameter validation works correctly."""
@@ -118,8 +113,7 @@ class TestParameterSetting:
         # Test setting negative frames (should fail or be corrected)
         original_frames = device.frames.get()
         try:
-            device.frames.set(-1)
-            time.sleep(0.5)
+            device.frames.set(-1).wait(0.5)
             # If no exception, check that value was corrected or rejected
             actual_frames = device.frames.get()
             assert actual_frames >= 0, "Negative frames should not be allowed"
@@ -128,7 +122,7 @@ class TestParameterSetting:
             pass
         finally:
             # Ensure we restore a valid value
-            device.frames.set(max(1, original_frames))
+            device.frames.set(max(1, original_frames)).wait(0.5)
 
 
 class TestParameterDependencies:
