@@ -11,4 +11,4 @@ Test modules:
 - test_acquisition: Acquisition control and monitoring
 - test_file_writing: File capture and data writing
 - test_integration: Complete workflow testing
-""" 
+"""
