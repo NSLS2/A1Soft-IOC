@@ -3,10 +3,6 @@ Acceptance tests for parameter getting and setting functionality.
 These tests verify that detector parameters can be read and written correctly.
 """
 
-import pytest
-import time
-from .conftest import wait_for_condition
-
 
 class TestParameterSetting:
     """Test setting and getting detector parameters."""

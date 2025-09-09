@@ -4,7 +4,6 @@ These tests verify that the IOC is running and responding to basic queries.
 """
 
 import time
-from .conftest import wait_for_condition
 
 
 class TestBasicConnectivity:

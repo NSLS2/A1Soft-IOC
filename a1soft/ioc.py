@@ -935,7 +935,9 @@ class DetectorIOC(PVGroup):
                 self._file_writer_task = None
 
             # Add the final data field to the file
-            deflector_x_exists = "deflector_x" in self._file_handle.entry.instrument.analyzer
+            deflector_x_exists = (
+                "deflector_x" in self._file_handle.entry.instrument.analyzer
+            )
             angles_exists = "angles" in self._file_handle.entry.instrument.analyzer
             energies_exists = "energies" in self._file_handle.entry.instrument.analyzer
             data_exists = "data" in self._file_handle.entry.instrument.analyzer

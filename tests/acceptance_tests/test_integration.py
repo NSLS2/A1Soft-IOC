@@ -7,8 +7,7 @@ import pytest
 import time
 import h5py
 import numpy as np
-from pathlib import Path
-from .conftest import wait_for_state, wait_for_condition
+from .conftest import wait_for_state
 
 
 class TestCompleteWorkflow:
@@ -20,10 +19,10 @@ class TestCompleteWorkflow:
 
         # Store original parameters for restoration
         original_params = {
-            'num_scans': device.num_scans.get(),
-            'frames': device.frames.get(),
-            'start_ke': device.start_ke.get(),
-            'end_ke': device.end_ke.get(),
+            "num_scans": device.num_scans.get(),
+            "frames": device.frames.get(),
+            "start_ke": device.start_ke.get(),
+            "end_ke": device.end_ke.get(),
         }
 
         try:
@@ -32,27 +31,29 @@ class TestCompleteWorkflow:
             device.frames.set(1).wait(1.0)
             device.start_ke.set(100.0).wait(1.0)
             device.end_ke.set(101.0).wait(1.0)
-            
+
             # Verify parameters were set
             assert device.num_scans.get() == 2, "num_scans should be set to 2"
             assert device.frames.get() == 1, "frames should be set to 1"
             assert abs(device.start_ke.get() - 100.0) < 0.1, "start_ke should be ~100.0"
             assert abs(device.end_ke.get() - 101.0) < 0.1, "end_ke should be ~110.0"
-            
+
             # Step 2: Set up file capture
             file_path = str(test_output_dir)
             file_name = "integration_test.nxs"
             full_path = test_output_dir / file_name
-            
+
             device.file_path.set(file_path).wait(1.0)
             device.file_name.set(file_name).wait(1.0)
             device.file_capture.set("On").wait(1.0)
-            
-            assert device.file_capture.get(as_string=True) == "On", "File capture should be enabled"
-            
+
+            assert device.file_capture.get(as_string=True) == "On", (
+                "File capture should be enabled"
+            )
+
             # Step 3: Run acquisition
             initial_num_processed = device.num_processed.get()
-            
+
             device.acquire.set(1).wait(1.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
 
@@ -117,7 +118,7 @@ class TestCompleteWorkflow:
             for param_name, original_value in original_params.items():
                 param_signal = getattr(device, param_name)
                 param_signal.set(original_value).wait(1.0)
-            
+
             # Ensure clean state
             if device.file_capture.get(as_string=True) == "On":
                 device.file_capture.set("Off").wait(1.0)
@@ -134,7 +135,7 @@ class TestCompleteWorkflow:
             # Change multiple parameters
             new_num_scans = 3
             device.num_scans.set(new_num_scans).wait(1.0)
-            
+
             # Change pass energy if possible
             if device.pass_energy.enum_strs and len(device.pass_energy.enum_strs) > 1:
                 new_pass_energy = None
@@ -145,7 +146,7 @@ class TestCompleteWorkflow:
 
                 if new_pass_energy:
                     device.pass_energy.set(new_pass_energy).wait(1.0)
-            
+
             # Wait for parameter synchronization
             time.sleep(0.5)
 
@@ -158,7 +159,7 @@ class TestCompleteWorkflow:
             device.file_path.set(str(test_output_dir)).wait(1.0)
             device.file_name.set("param_test.nxs").wait(1.0)
             device.file_capture.set("On").wait(1.0)
-            
+
             # Start acquisition with new parameters
             device.acquire.set(1).wait(1.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
@@ -184,26 +185,28 @@ class TestCompleteWorkflow:
         # Set up for quick acquisitions
         original_num_scans = device.num_scans.get()
         device.num_scans.set(1).wait(1.0)
-        
+
         try:
             # Set up file capture
             device.file_path.set(str(test_output_dir)).wait(1.0)
             device.file_name.set("multi_acquisition.nxs").wait(1.0)
             device.file_capture.set("On").wait(1.0)
-            
+
             initial_captured = device.num_captured.get()
 
             # Run multiple short acquisitions
             for run_num in range(3):
                 print(f"Starting acquisition run {run_num + 1}")
-                
+
                 device.acquire.set(1).wait(1.0)
                 wait_for_state(device, "RUNNING", timeout=10.0)
 
                 # Wait for completion or timeout
                 timeout = 60.0
                 start_time = time.time()
-                while (time.time() - start_time) < timeout and device.state.get() == "RUNNING":
+                while (
+                    time.time() - start_time
+                ) < timeout and device.state.get() == "RUNNING":
                     time.sleep(0.5)
 
                 # Stop if still running
@@ -211,12 +214,14 @@ class TestCompleteWorkflow:
                     device.acquire.set(0).wait(1.0)
                     wait_for_state(device, "STANDBY", timeout=5.0)
                     raise RuntimeError(f"Failed to finish run in {timeout} seconds.")
-                
+
                 # Check progress
                 current_captured = device.num_captured.get()
                 print(f"{current_captured=}")
-                assert current_captured >= initial_captured, f"Should have captured data by run {run_num + 1}"
-                
+                assert current_captured >= initial_captured, (
+                    f"Should have captured data by run {run_num + 1}"
+                )
+
                 # Brief pause between runs
                 time.sleep(1.0)
 
@@ -247,13 +252,13 @@ class TestErrorRecovery:
         # Set up for longer acquisition that can be interrupted
         original_num_scans = device.num_scans.get()
         device.num_scans.set(10).wait(1.0)  # Longer acquisition
-        
+
         try:
             # Set up file capture
             device.file_path.set(str(test_output_dir)).wait(1.0)
             device.file_name.set("stop_restart_test.nxs").wait(1.0)
             device.file_capture.set("On").wait(1.0)
-            
+
             # Start acquisition
             device.acquire.set(1).wait(1.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
@@ -295,7 +300,7 @@ class TestErrorRecovery:
         device.file_path.set(str(test_output_dir)).wait(1.0)
         device.file_name.set(file_name).wait(1.0)
         device.file_capture.set("On").wait(1.0)
-        
+
         first_num_captured = device.num_captured.get()
 
         device.file_capture.set("Off").wait(1.0)
@@ -304,7 +309,7 @@ class TestErrorRecovery:
 
         # Second capture session (should append to existing file)
         device.file_capture.set("On").wait(1.0)
-        
+
         second_num_captured = device.num_captured.get()
         assert second_num_captured >= first_num_captured, (
             "Should resume from previous count"
@@ -325,7 +330,7 @@ class TestErrorRecovery:
             current_start = device.start_ke.get()
             if current_start > 1.0:
                 device.end_ke.set(current_start - 1.0).wait(1.0)
-                
+
                 # The system should either reject this or adjust parameters automatically
                 final_start = device.start_ke.get()
                 final_end = device.end_ke.get()
@@ -355,21 +360,20 @@ class TestPerformanceAndStability:
 
         # Store original values
         original_frames = device.frames.get()
-        
+
         try:
             # Make rapid parameter changes
             for i in range(10):
                 new_frames = original_frames + (i % 3)  # Cycle through a few values
-                new_comment = f"Rapid test {i}"
-                
+
                 device.frames.set(new_frames).wait(1.0)
-            
+
             # Let the system settle
             time.sleep(2.0)
 
             # Verify final values are reasonable
             final_frames = device.frames.get()
-            
+
             assert isinstance(final_frames, int), "frames should remain integer"
             assert final_frames > 0, "frames should remain positive"
 
@@ -399,9 +403,11 @@ class TestPerformanceAndStability:
             device.file_path.set(str(test_output_dir)).wait(1.0)
             device.file_name.set("stability_test.nxs").wait(1.0)
             device.file_capture.set("On").wait(1.0)
-            
-            assert check_connection(), "Connection should remain stable after file setup"
-            
+
+            assert check_connection(), (
+                "Connection should remain stable after file setup"
+            )
+
             # Brief acquisition
             device.acquire.set(1).wait(1.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
@@ -420,7 +426,7 @@ class TestPerformanceAndStability:
 
             # Clean up
             device.file_capture.set("Off").wait(1.0)
-            
+
             assert check_connection(), "Connection should remain stable after cleanup"
 
             # Verify all connection checks passed
