@@ -12,7 +12,16 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Any, Literal
 
-from nexusformat.nexus import NXdata, NXfield, NXroot, NXentry, nxopen, NXdetector, NXinstrument, NXlink
+from nexusformat.nexus import (
+    NXdata,
+    NXfield,
+    NXroot,
+    NXentry,
+    nxopen,
+    NXdetector,
+    NXinstrument,
+    NXlink,
+)
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyData
 from caproto import ChannelType
 import numpy as np
@@ -481,10 +490,28 @@ class DetectorIOC(PVGroup):
     acquire = pvproperty(value=0, name="ACQUIRE")
     acquisition_status = pvproperty(value=0, name="ACQ:STATUS", read_only=True)
 
+    # Detector control
+    det_off = pvproperty(value=False, name="DET:OFF", dtype=bool)
+    """Turn off the detector"""
+    max_count = pvproperty(value=0, name="DET:MAX_COUNT", dtype=int)
+    """Maximum value of a single pixel of the detector"""
+    max_count_threshold = pvproperty(value=155, name="DET:MAX_COUNT_THRESH", dtype=int)
+    """Threshold for the maximum value of a single pixel of the detector"""
+
     # File writing
     file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
-    file_name = pvproperty(value="", name="FILE:NAME", dtype=ChannelType.STRING)
-    file_path = pvproperty(value="", name="FILE:PATH", dtype=ChannelType.STRING)
+    file_name = pvproperty(
+        value="",
+        name="FILE:NAME",
+        dtype=str,
+        max_length=1024,
+    )
+    file_path = pvproperty(
+        value="",
+        name="FILE:PATH",
+        dtype=str,
+        max_length=1024,
+    )
     file_status = pvproperty(
         value="", name="FILE:STATUS", read_only=True, dtype=ChannelType.STRING
     )
@@ -524,19 +551,27 @@ class DetectorIOC(PVGroup):
         put=_param_write,
         name="PASS_ENERGY",
         dtype=ChannelType.ENUM,
-        enum_strings=("PE001", "PE002", "PE005", "PE010", "PE020", "PE050"),
+        enum_strings=(
+            "PE001",
+            "PE002",
+            "PE005",
+            "PE010",
+            "PE020",
+            "PE050",
+            "PE100",
+            "PE200",
+        ),
     )
     lens_mode = pvproperty(
         put=_param_write,
         name="LENS_MODE",
         dtype=ChannelType.ENUM,
         enum_strings=(
-            "L4Ang0d6",
             "L4Ang0d8",
             "L4Ang1d6",
             "L4Ang3d9",
+            "L4MAng0d7",
             "L4MSpat5",
-            "L4Spat5",
         ),
     )
     num_scans = pvproperty(put=_param_write, name="NUM_SCANS", dtype=int)
@@ -559,7 +594,7 @@ class DetectorIOC(PVGroup):
         put=_param_write,
         name="ACQ_MODE",
         dtype=ChannelType.ENUM,
-        enum_strings=("Fixed", "Swept", "Dither"),
+        enum_strings=("Fixed", "FixedTrigd", "Swept", "Dither"),
     )
     date_number = pvproperty(
         name="DATE_NUMBER", enum_strings=("FALSE", "TRUE"), dtype=bool, read_only=True
@@ -695,8 +730,10 @@ class DetectorIOC(PVGroup):
         )
 
         data = await self.tcp_client.get_data()
-        data["deflX"] = response["values"][0]["value"]
         if data:
+            # FIXME: May have to use the live data port to get the max count more frequently
+            await self.max_count.write(np.max(data["channel_2_data"]))
+            data["deflX"] = response["values"][0]["value"]
             return data
         else:
             logger.warning("Failed to read image data")
@@ -706,20 +743,30 @@ class DetectorIOC(PVGroup):
         """Write metadata to file that is not changed during the run."""
         if self._file_handle is None:
             raise RuntimeError("File handle not initialized")
-        
+
         analyzer = self._file_handle.entry.instrument.analyzer
 
         analyzer.angles = NXfield(
-            np.linspace(self.xscale_min.value, self.xscale_max.value, self.num_slice.value, endpoint=False),
+            np.linspace(
+                self.xscale_min.value,
+                self.xscale_max.value,
+                self.num_slice.value,
+                endpoint=True,
+            ),
             name="angles",
             units="deg",
         )
         analyzer.energies = NXfield(
-            np.linspace(self.start_ke.value, self.end_ke.value, self.num_steps.value, endpoint=False),
+            np.linspace(
+                self.escale_min.value,
+                self.escale_max.value,
+                self.num_steps.value,
+                endpoint=True,
+            ),
             name="energies",
             units="eV",
         )
-        
+
     async def _background_file_writer(self) -> None:
         """Background task that continuously writes image data from queue to file."""
         if self._file_handle is None:
@@ -745,7 +792,6 @@ class DetectorIOC(PVGroup):
                 # Wait for data from the queue
                 item = await self._image_queue.get()
 
-
                 # Check for shutdown signal (None is used as sentinel)
                 if item is None:
                     break
@@ -767,12 +813,14 @@ class DetectorIOC(PVGroup):
                         dtype=np.float64,
                         maxshape=(None,),
                     )
-                    detector["deflector_x"] = deflx_field    
-                
+                    detector["deflector_x"] = deflx_field
+
                 # On the first pass, capture the run metadata and write it to the file
                 # This is done only if the data field is empty
                 if first_pass:
                     self._write_metadata_to_file()
+                    # Set SWMR mode to True after writing to file
+                    self._file_handle.nxfile.file.swmr_mode = True
                     first_pass = False
 
                 # We continually overwrite the last frame in the data field in-case of
@@ -850,11 +898,15 @@ class DetectorIOC(PVGroup):
                 logger.error(msg)
                 raise RuntimeError(msg)
 
-            self._full_file_path = Path(file_path) / filename
+            path = Path(file_path)
+            if not path.exists():
+                path.mkdir(parents=True, exist_ok=True)
+
+            self._full_file_path = path / filename
 
             # Create fresh queue for this capture session
             self._image_queue = asyncio.Queue(maxsize=100)
-            self._file_handle = nxopen(self._full_file_path, "a")
+            self._file_handle = nxopen(self._full_file_path, "a", libver="latest")
             self._create_file_structure(self._file_handle)
             if "data" in self._file_handle.entry.instrument.analyzer:
                 size = self._file_handle.entry.instrument.analyzer["data"].shape[0]
@@ -881,7 +933,7 @@ class DetectorIOC(PVGroup):
                     logger.warning("File writer task did not shutdown cleanly")
                     self._file_writer_task.cancel()
                 self._file_writer_task = None
-            
+
             # Add the final data field to the file
             dfl = NXlink(self._file_handle.entry.instrument.analyzer.deflector_x)
             an = NXlink(self._file_handle.entry.instrument.analyzer.angles)
@@ -1053,6 +1105,27 @@ class DetectorIOC(PVGroup):
                     return instance.value
 
             return value
+
+    @det_off.putter
+    async def det_off(self, instance: Any, value: bool) -> bool:
+        """Turn off the detector."""
+        if value:
+            response = await self.tcp_client.send_command("ACTION", action="DET_OFF")
+            if not response:
+                logger.error("Failed to turn off the detector")
+                return False
+        return value
+
+    @max_count.putter
+    async def max_count(self, instance: Any, value: int) -> int:
+        """Set the maximum count of the detector."""
+        if value > self.max_count_threshold.value:
+            logger.warning(
+                f"Maximum count threshold exceeded: {value} > {self.max_count_threshold.value}. Turning off detector!"
+            )
+            await self.acquire.write(0)
+            await self.det_off.write(True)
+        return value
 
     async def cleanup(self) -> None:
         """Clean up background tasks and connections."""
