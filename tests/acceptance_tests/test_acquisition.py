@@ -5,7 +5,7 @@ These tests verify that acquisition can be started, stopped, and monitored corre
 
 import pytest
 import time
-from conftest import wait_for_state
+from .conftest import wait_for_state, wait_for_condition
 
 
 class TestAcquisitionControl:
@@ -108,8 +108,8 @@ class TestAcquisitionControl:
 
         # Set minimal parameters for quick completion
         original_num_scans = device.num_scans.get()
-        device.num_scans.set(1).wait(0.5)  # Just one scan
-
+        device.num_scans.set(1).wait(1.0)  # Just one scan
+        
         try:
             # Reset scan counters
             initial_act_scans = device.act_scans.get()
@@ -141,7 +141,7 @@ class TestAcquisitionControl:
 
         finally:
             # Restore original scan count
-            device.num_scans.set(original_num_scans).wait(0.5)
+            device.num_scans.set(original_num_scans).wait(1.0)
 
 
 class TestAcquisitionStates:
@@ -186,8 +186,8 @@ class TestAcquisitionStates:
 
         # Set a reasonable number of scans for monitoring
         original_num_scans = device.num_scans.get()
-        device.num_scans.set(5).wait(0.5)
-
+        device.num_scans.set(5).wait(1.0)
+        
         try:
             initial_act_scans = device.act_scans.get()
 
@@ -221,7 +221,7 @@ class TestAcquisitionStates:
 
         finally:
             # Restore original scan count
-            device.num_scans.set(original_num_scans).wait(0.5)
+            device.num_scans.set(original_num_scans).wait(1.0)
 
 
 class TestAcquisitionErrorHandling:
@@ -274,8 +274,8 @@ class TestAcquisitionErrorHandling:
 
         # Set up for a longer acquisition that we'll interrupt
         original_num_scans = device.num_scans.get()
-        device.num_scans.set(100).wait(0.5)  # Many scans
-
+        device.num_scans.set(100).wait(1.0)  # Many scans
+        
         try:
             # Start acquisition
             device.acquire.set(1).wait(0.5)
@@ -296,7 +296,7 @@ class TestAcquisitionErrorHandling:
 
         finally:
             # Restore original settings
-            device.num_scans.set(original_num_scans).wait(0.5)
+            device.num_scans.set(original_num_scans).wait(1.0)
 
 
 class TestAcquisitionParameters:

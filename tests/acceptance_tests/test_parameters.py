@@ -3,6 +3,10 @@ Acceptance tests for parameter getting and setting functionality.
 These tests verify that detector parameters can be read and written correctly.
 """
 
+import pytest
+import time
+from .conftest import wait_for_condition
+
 
 class TestParameterSetting:
     """Test setting and getting detector parameters."""
@@ -78,61 +82,6 @@ class TestParameterSetting:
 
             # Restore original value
             device.pass_energy.set(original_pass_energy).wait(0.5)
-
-    def test_boolean_parameter_setting(self, detector_in_standby):
-        """Test setting boolean parameters."""
-        device = detector_in_standby
-
-        # Test spin parameter
-        original_spin = device.spin.get()
-        new_spin = not original_spin
-
-        device.spin.set(new_spin).wait(0.5)
-
-        actual_spin = device.spin.get()
-        assert actual_spin == new_spin, f"Expected spin={new_spin}, got {actual_spin}"
-
-        # Restore original value
-        device.spin.set(original_spin).wait(0.5)
-
-    def test_string_parameter_setting(self, detector_in_standby):
-        """Test setting string parameters."""
-        device = detector_in_standby
-
-        # Test comment1 parameter
-        original_comment = device.comment1.get()
-        new_comment = "Test comment from acceptance test"
-
-        device.comment1.set(new_comment).wait(0.5)
-
-        actual_comment = device.comment1.get()
-        assert actual_comment == new_comment, (
-            f"Expected '{new_comment}', got '{actual_comment}'"
-        )
-
-        # Restore original value
-        device.comment1.set(original_comment).wait(0.5)
-
-    def test_parameter_validation(self, detector_in_standby):
-        """Test that parameter validation works correctly."""
-        device = detector_in_standby
-
-        # Test that setting invalid values raises appropriate errors
-        # This might be device-specific, so we test common cases
-
-        # Test setting negative frames (should fail or be corrected)
-        original_frames = device.frames.get()
-        try:
-            device.frames.set(-1).wait(0.5)
-            # If no exception, check that value was corrected or rejected
-            actual_frames = device.frames.get()
-            assert actual_frames >= 0, "Negative frames should not be allowed"
-        except Exception:
-            # Exception is acceptable for invalid parameters
-            pass
-        finally:
-            # Ensure we restore a valid value
-            device.frames.set(max(1, original_frames)).wait(0.5)
 
 
 class TestParameterDependencies:

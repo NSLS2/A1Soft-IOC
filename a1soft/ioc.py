@@ -881,7 +881,7 @@ class DetectorIOC(PVGroup):
         self, instance: PvpropertyData, value: Literal["On", "Off"]
     ) -> bool:
         """Start or stop file capture."""
-        if self.file_capture.value == value:
+        if instance.value == value:
             msg = f"File capture is already '{value}'"
             logger.error(msg)
             raise RuntimeError(msg)
@@ -935,14 +935,23 @@ class DetectorIOC(PVGroup):
                 self._file_writer_task = None
 
             # Add the final data field to the file
-            dfl = NXlink(self._file_handle.entry.instrument.analyzer.deflector_x)
-            an = NXlink(self._file_handle.entry.instrument.analyzer.angles)
-            en = NXlink(self._file_handle.entry.instrument.analyzer.energies)
-            counts = NXlink(self._file_handle.entry.instrument.analyzer.data)
-            self._file_handle.entry.data = NXdata(
-                counts,
-                [dfl, an, en],
-            )
+            deflector_x_exists = "deflector_x" in self._file_handle.entry.instrument.analyzer
+            angles_exists = "angles" in self._file_handle.entry.instrument.analyzer
+            energies_exists = "energies" in self._file_handle.entry.instrument.analyzer
+            data_exists = "data" in self._file_handle.entry.instrument.analyzer
+            if deflector_x_exists:
+                dfl = NXlink(self._file_handle.entry.instrument.analyzer.deflector_x)
+            if angles_exists:
+                an = NXlink(self._file_handle.entry.instrument.analyzer.angles)
+            if energies_exists:
+                en = NXlink(self._file_handle.entry.instrument.analyzer.energies)
+            if data_exists:
+                counts = NXlink(self._file_handle.entry.instrument.analyzer.data)
+            if all((deflector_x_exists, angles_exists, energies_exists, data_exists)):
+                self._file_handle.entry.data = NXdata(
+                    counts,
+                    [dfl, an, en],
+                )
 
             self._full_file_path = None
             self._file_handle.close()

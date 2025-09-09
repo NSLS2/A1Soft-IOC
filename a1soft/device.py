@@ -15,6 +15,11 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     acquire = Cpt(EpicsSignal, "ACQUIRE")
     acquisition_status = Cpt(EpicsSignalRO, "ACQ:STATUS")
 
+    # Detector control
+    det_off = Cpt(EpicsSignal, "DET:OFF")
+    det_max_count = Cpt(EpicsSignalRO, "DET:MAX_COUNT")
+    det_max_count_threshold = Cpt(EpicsSignal, "DET:MAX_COUNT_THRESH")
+
     # Status and info
     connection_status = Cpt(EpicsSignalRO, "SYS:CONNECTED")
     last_sync = Cpt(EpicsSignalRO, "SYS:LAST_SYNC")
@@ -22,8 +27,8 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
 
     # File writing
     file_capture = Cpt(EpicsSignal, "FILE:CAPTURE")
-    file_name = Cpt(EpicsSignal, "FILE:NAME")
-    file_path = Cpt(EpicsSignal, "FILE:PATH")
+    file_name = Cpt(EpicsSignal, "FILE:NAME", string=True)
+    file_path = Cpt(EpicsSignal, "FILE:PATH", string=True)
     file_status = Cpt(EpicsSignalRO, "FILE:STATUS")
     num_captured = Cpt(EpicsSignalRO, "FILE:NUM_CAPTURED")
     num_processed = Cpt(EpicsSignalRO, "FILE:NUM_PROCESSED")
