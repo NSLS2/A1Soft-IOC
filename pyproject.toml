@@ -53,3 +53,6 @@ ruff = "*"
 pyright = "*"
 pytest = "*"
 h5py = "*"
+
+[tool.pixi.feature.dev.pypi-dependencies]
+a1soft = { path = ".", editable = true }
