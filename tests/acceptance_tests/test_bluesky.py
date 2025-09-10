@@ -7,7 +7,6 @@ import pytest
 
 from bluesky import RunEngine
 from bluesky.plans import count, scan
-import bluesky.plan_stubs as bps
 from bluesky.utils import FailedStatus
 from ophyd.status import Status
 from ophyd import Staged
@@ -134,9 +133,7 @@ class TestDeviceWithBluesky:
         with pytest.raises(FailedStatus):
             RE(count([device], num=2))
 
-    def test_device_with_scan(
-        self, detector_in_standby, run_engine, test_output_dir
-    ):
+    def test_device_with_scan(self, detector_in_standby, run_engine, test_output_dir):
         """Test device can handle multiple triggers in sequence."""
         device = detector_in_standby
         RE = run_engine
@@ -178,4 +175,3 @@ class TestDeviceWithBluesky:
         # Should have multiple events
         events = [doc for name, doc in documents if name == "event"]
         assert len(events) >= 5, "Should have at least 5 event documents"
-    

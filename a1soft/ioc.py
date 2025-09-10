@@ -491,15 +491,21 @@ class DetectorIOC(PVGroup):
     acquisition_status = pvproperty(value=0, name="ACQ:STATUS", read_only=True)
 
     # Detector control
-    det_off = pvproperty(value="No", name="DET:OFF", enum_strings=("No", "Yes"), dtype=bool)
+    det_off = pvproperty(
+        value="No", name="DET:OFF", enum_strings=("No", "Yes"), dtype=bool
+    )
     """Turn off the detector when this is set to 'On'"""
     max_count = pvproperty(value=0, name="DET:MAX_COUNT", dtype=int)
     """Maximum value of a single pixel of the detector"""
     max_count_threshold = pvproperty(value=155, name="DET:MAX_COUNT_THRESH", dtype=int)
     """Threshold for the maximum value of a single pixel of the detector"""
-    max_count_exceeded = pvproperty(value="No", name="DET:MAX_COUNT_EXCEEDED", enum_strings=("No", "Yes"), dtype=bool)
+    max_count_exceeded = pvproperty(
+        value="No",
+        name="DET:MAX_COUNT_EXCEEDED",
+        enum_strings=("No", "Yes"),
+        dtype=bool,
+    )
     """Indicates if the maximum count has exceeded the threshold"""
-
 
     # File writing
     file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
@@ -1098,10 +1104,12 @@ class DetectorIOC(PVGroup):
 
             if value > 0:
                 if self.max_count_exceeded.value == "Yes":
-                    raise RuntimeError((
-                        "Acquisition cannot be started due to max count threshold exceeded. "
-                        "If it is safe to do so, reset the max count exceeded flag."
-                    ))
+                    raise RuntimeError(
+                        (
+                            "Acquisition cannot be started due to max count threshold exceeded. "
+                            "If it is safe to do so, reset the max count exceeded flag."
+                        )
+                    )
                 response: dict[str, Any] | None = await self.tcp_client.send_command(
                     "ACTION", action="START"
                 )
