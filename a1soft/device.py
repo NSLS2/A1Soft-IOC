@@ -19,7 +19,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     det_off = Cpt(EpicsSignal, "DET:OFF")
     det_max_count = Cpt(EpicsSignalRO, "DET:MAX_COUNT")
     det_max_count_threshold = Cpt(EpicsSignal, "DET:MAX_COUNT_THRESH")
-    det_max_count_exceeded = Cpt(EpicsSignalRO, "DET:MAX_COUNT_EXCEEDED")
+    det_max_count_exceeded = Cpt(EpicsSignal, "DET:MAX_COUNT_EXCEEDED")
 
     # Status and info
     connection_status = Cpt(EpicsSignalRO, "SYS:CONNECTED")
@@ -106,12 +106,8 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
             raise RuntimeError(
                 "File capture must be off to stage the detector, otherwise the file will be corrupted"
             )
-        if self.acquire.get(as_string=True) == "RUNNING":
-            self.stage_sigs.update(
-                [
-                    (self.acquire, 0),
-                ]
-            )
+        if self.state.get(as_string=True) == "RUNNING":
+            self.acquire.set(0).wait(3.0)
         self.stage_sigs.update(
             [
                 (self.file_capture, 1),
@@ -133,8 +129,15 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         if value == "STANDBY" and old_value == "RUNNING":
             # Settle time for the detector to transition properly
             ttime.sleep(1.0)
-            self._status.set_finished()
-            self._index += 1
+            if self.det_max_count_exceeded.get():
+                max_count = self.det_max_count.get()
+                max_count_threshold = self.det_max_count_threshold.get()
+                self._status.set_exception(
+                    RuntimeError(f"Max count safety limit exceeded: {max_count} > {max_count_threshold}")
+                )
+            else:
+                self._status.set_finished()
+                self._index += 1
             self._status = None
 
     def trigger(self):
@@ -143,18 +146,9 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 "This detector is not ready to trigger."
                 "Call the stage() method before triggering."
             )
-        # Check if the acquisition was aborted due to detector safety limits
-        # In this case, we want to abort the scan by raising an exception
-        if self.det_max_count_exceeded.get():
-            max_count = self.det_max_count.get()
-            max_count_threshold = self.det_max_count_threshold.get()
-            raise RuntimeError(
-                "Detector was turned off due to max count threshold exceeded: "
-                f"{max_count} > {max_count_threshold}"
-            )
 
-        self.acquire.set(1)
         self._status = Status()
+        self.acquire.set(1).wait(1.0)
         return self._status
 
     def describe(self) -> dict[str, DataKey]:
@@ -202,6 +196,8 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 yield "stream_datum", self._composer.compose_stream_datum(indices)
 
     def unstage(self):
+        if self.state.get(as_string=True) == "RUNNING":
+            self.acquire.set(0).wait(3.0)
         self.det_off.set(1).wait(3.0)
         super().unstage()
         self.state.unsubscribe(self._stage_changed)

@@ -66,6 +66,14 @@ def detector_in_standby(analyzer_device):
     if device.file_capture.get(as_string=True) == "On":
         device.file_capture.set("Off").wait(1.0)
 
+    # Ensure safety limit is reset
+    if device.det_max_count_exceeded.get():
+        device.det_max_count_exceeded.set(False).wait(1.0)
+
+    # Default mode is swept
+    device.acq_mode.set("Swept").wait(1.0)
+    device.num_steps.set(10).wait(1.0)
+
     return device
 
 

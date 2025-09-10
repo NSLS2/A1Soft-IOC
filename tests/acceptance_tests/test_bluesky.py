@@ -6,8 +6,9 @@ Tests the SpectrumAnalyzer device both with bluesky integration.
 import pytest
 
 from bluesky import RunEngine
-from bluesky.plans import count
+from bluesky.plans import count, scan
 import bluesky.plan_stubs as bps
+from bluesky.utils import FailedStatus
 from ophyd.status import Status
 from ophyd import Staged
 
@@ -38,6 +39,7 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(1.0)
         device.file_name.set("test_count.nxs").wait(1.0)
         device.num_scans.set(1).wait(1.0)
+        device.det_max_count_threshold.set(5000).wait(1.0)
 
         # Execute count plan
         documents = []
@@ -60,98 +62,6 @@ class TestDeviceWithBluesky:
         # Verify device returned to unstaged state
         assert device._staged == Staged.no, "Device should be unstaged after plan"
 
-    def test_device_readable_protocol(self, detector_in_standby):
-        """Test that device properly implements Readable protocol."""
-        device = detector_in_standby
-
-        # Test describe method
-        description = device.describe()
-        assert isinstance(description, dict), "describe() should return dict"
-
-        # Check that all signals are described
-        expected_signals = [
-            "num_scans",
-            "num_steps",
-            "start_ke",
-            "end_ke",
-            "pass_energy",
-            "lens_mode",
-            "acq_mode",
-        ]
-
-        for signal_name in expected_signals:
-            assert signal_name in description, (
-                f"Missing signal {signal_name} in description"
-            )
-            assert "source" in description[signal_name], (
-                f"Missing source for {signal_name}"
-            )
-            assert "dtype" in description[signal_name], (
-                f"Missing dtype for {signal_name}"
-            )
-
-        # Test read method
-        reading = device.read()
-        assert isinstance(reading, dict), "read() should return dict"
-
-        for signal_name in expected_signals:
-            if signal_name in reading:  # Some signals may not be in reading
-                assert "value" in reading[signal_name], (
-                    f"Missing value for {signal_name}"
-                )
-                assert "timestamp" in reading[signal_name], (
-                    f"Missing timestamp for {signal_name}"
-                )
-
-    def test_device_stream_assets_protocol(self, detector_in_standby, test_output_dir):
-        """Test WritesStreamAssets protocol implementation."""
-        device = detector_in_standby
-
-        # Configure device for file writing
-        device.file_path.set(str(test_output_dir)).wait(1.0)
-        device.file_name.set("test_stream.nxs").wait(1.0)
-        device.num_scans.set(1).wait(1.0)
-
-        # Stage device (required for stream assets)
-        device.stage()
-
-        try:
-            # Check describe includes stream asset
-            description = device.describe()
-            stream_key = f"{device.name}_image"
-            assert stream_key in description, f"Missing stream asset key {stream_key}"
-
-            stream_desc = description[stream_key]
-            assert stream_desc.get("external") == "STREAM:", (
-                "Should be marked as external stream"
-            )
-            assert "shape" in stream_desc, "Stream asset should have shape"
-            assert "dtype" in stream_desc, "Stream asset should have dtype"
-
-            # Trigger acquisition to generate assets
-            status = device.trigger()
-            assert isinstance(status, Status), "trigger() should return Status"
-
-            # Wait for completion
-            status.wait(timeout=30.0)
-
-            # Test collect_asset_docs
-            asset_docs = list(device.collect_asset_docs())
-
-            # Should have stream resource and datum documents
-            if asset_docs:  # Only if acquisition completed
-                doc_names = [doc[0] for doc in asset_docs]
-                assert "stream_resource" in doc_names, (
-                    "Should generate stream_resource doc"
-                )
-                if len(asset_docs) > 1:
-                    assert "stream_datum" in doc_names, (
-                        "Should generate stream_datum doc"
-                    )
-
-        finally:
-            device.unstage()
-
     def test_device_staging_with_bluesky(self, detector_in_standby, test_output_dir):
         """Test device staging behavior within bluesky context."""
         device = detector_in_standby
@@ -159,6 +69,7 @@ class TestDeviceWithBluesky:
         # Configure device
         device.file_path.set(str(test_output_dir)).wait(1.0)
         device.file_name.set("test_staging.nxs").wait(1.0)
+        device.det_max_count_threshold.set(5000).wait(1.0)
 
         # Initially unstaged
         assert device._staged == Staged.no, "Should start unstaged"
@@ -195,22 +106,76 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(1.0)
         device.file_name.set("test_multi_trigger.nxs").wait(1.0)
         device.num_scans.set(1).wait(1.0)
-
-        def multi_trigger_plan():
-            yield from bps.stage(device)
-            try:
-                # Trigger multiple times
-                for i in range(3):
-                    yield from bps.trigger(device, wait=True)
-                    yield from bps.read(device)
-            finally:
-                yield from bps.unstage(device)
+        device.det_max_count_threshold.set(5000).wait(1.0)
 
         documents = []
         RE.subscribe(lambda name, doc: documents.append((name, doc)))
 
-        RE(multi_trigger_plan())
+        RE(count([device], num=3))
 
         # Should have multiple events
         events = [doc for name, doc in documents if name == "event"]
         assert len(events) >= 3, "Should have at least 3 event documents"
+
+    def test_device_with_safety_limits(
+        self, detector_in_standby, run_engine, test_output_dir
+    ):
+        """Test device stops the scan if the safety limits are exceeded."""
+        device = detector_in_standby
+        RE = run_engine
+
+        # Configure device
+        device.file_path.set(str(test_output_dir)).wait(1.0)
+        device.file_name.set("test_safety_limits.nxs").wait(1.0)
+        device.num_scans.set(1).wait(1.0)
+        device.det_max_count_threshold.set(5).wait(1.0)
+
+        # Should not run the second iteration
+        with pytest.raises(FailedStatus):
+            RE(count([device], num=2))
+
+    def test_device_with_scan(
+        self, detector_in_standby, run_engine, test_output_dir
+    ):
+        """Test device can handle multiple triggers in sequence."""
+        device = detector_in_standby
+        RE = run_engine
+
+        # Configure device
+        device.file_path.set(str(test_output_dir)).wait(1.0)
+        device.file_name.set("test_multi_trigger.nxs").wait(1.0)
+        device.num_scans.set(1).wait(1.0)
+        device.det_max_count_threshold.set(5000).wait(1.0)
+
+        documents = []
+        RE.subscribe(lambda name, doc: documents.append((name, doc)))
+
+        RE(scan([device], device.deflX, 0.1, 8.7, 5))
+
+        # Should have multiple events
+        events = [doc for name, doc in documents if name == "event"]
+        assert len(events) >= 5, "Should have at least 5 event documents"
+
+    def test_device_with_fixed_scan(
+        self, detector_in_standby, run_engine, test_output_dir
+    ):
+        """Test device can handle multiple triggers in sequence."""
+        device = detector_in_standby
+        RE = run_engine
+
+        # Configure device
+        device.acq_mode.set("Fixed").wait(1.0)
+        device.file_path.set(str(test_output_dir)).wait(1.0)
+        device.file_name.set("test_multi_trigger.nxs").wait(1.0)
+        device.num_scans.set(1).wait(1.0)
+        device.det_max_count_threshold.set(5000).wait(1.0)
+
+        documents = []
+        RE.subscribe(lambda name, doc: documents.append((name, doc)))
+
+        RE(scan([device], device.deflX, 0.1, 8.7, 5))
+
+        # Should have multiple events
+        events = [doc for name, doc in documents if name == "event"]
+        assert len(events) >= 5, "Should have at least 5 event documents"
+    

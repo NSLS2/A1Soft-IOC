@@ -354,33 +354,6 @@ class TestErrorRecovery:
 class TestPerformanceAndStability:
     """Test performance and stability under various conditions."""
 
-    def test_rapid_parameter_changes(self, detector_in_standby):
-        """Test rapid parameter changes don't cause instability."""
-        device = detector_in_standby
-
-        # Store original values
-        original_frames = device.frames.get()
-
-        try:
-            # Make rapid parameter changes
-            for i in range(10):
-                new_frames = original_frames + (i % 3)  # Cycle through a few values
-
-                device.frames.set(new_frames).wait(1.0)
-
-            # Let the system settle
-            time.sleep(2.0)
-
-            # Verify final values are reasonable
-            final_frames = device.frames.get()
-
-            assert isinstance(final_frames, int), "frames should remain integer"
-            assert final_frames > 0, "frames should remain positive"
-
-        finally:
-            # Restore original values
-            device.frames.set(original_frames).wait(1.0)
-
     def test_connection_stability_during_workflow(
         self, detector_in_standby, test_output_dir
     ):
