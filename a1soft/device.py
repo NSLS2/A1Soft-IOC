@@ -191,6 +191,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 yield "stream_datum", self._composer.compose_stream_datum(indices)
 
     def unstage(self):
+        self.det_off.set(1).wait(3.0)
         super().unstage()
         self.state.unsubscribe(self._stage_changed)
         self._composer = None
