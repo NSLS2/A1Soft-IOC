@@ -133,7 +133,9 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 max_count = self.det_max_count.get()
                 max_count_threshold = self.det_max_count_threshold.get()
                 self._status.set_exception(
-                    RuntimeError(f"Max count safety limit exceeded: {max_count} > {max_count_threshold}")
+                    RuntimeError(
+                        f"Max count safety limit exceeded: {max_count} > {max_count_threshold}"
+                    )
                 )
             else:
                 self._status.set_finished()
