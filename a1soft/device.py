@@ -19,6 +19,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     det_off = Cpt(EpicsSignal, "DET:OFF")
     det_max_count = Cpt(EpicsSignalRO, "DET:MAX_COUNT")
     det_max_count_threshold = Cpt(EpicsSignal, "DET:MAX_COUNT_THRESH")
+    det_max_count_exceeded = Cpt(EpicsSignalRO, "DET:MAX_COUNT_EXCEEDED")
 
     # Status and info
     connection_status = Cpt(EpicsSignalRO, "SYS:CONNECTED")
@@ -142,6 +143,16 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 "This detector is not ready to trigger."
                 "Call the stage() method before triggering."
             )
+        # Check if the acquisition was aborted due to detector safety limits
+        # In this case, we want to abort the scan by raising an exception
+        if self.det_max_count_exceeded.get():
+            max_count = self.det_max_count.get()
+            max_count_threshold = self.det_max_count_threshold.get()
+            raise RuntimeError(
+                "Detector was turned off due to max count threshold exceeded: "
+                f"{max_count} > {max_count_threshold}"
+            )
+
         self.acquire.set(1)
         self._status = Status()
         return self._status

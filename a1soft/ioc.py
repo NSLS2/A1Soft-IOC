@@ -497,6 +497,9 @@ class DetectorIOC(PVGroup):
     """Maximum value of a single pixel of the detector"""
     max_count_threshold = pvproperty(value=155, name="DET:MAX_COUNT_THRESH", dtype=int)
     """Threshold for the maximum value of a single pixel of the detector"""
+    max_count_exceeded = pvproperty(value=False, name="DET:MAX_COUNT_EXCEEDED", read_only=True, dtype=bool)
+    """Indicates if the maximum count has exceeded the threshold"""
+
 
     # File writing
     file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
@@ -1134,8 +1137,9 @@ class DetectorIOC(PVGroup):
             logger.warning(
                 f"Maximum count threshold exceeded: {value} > {self.max_count_threshold.value}. Turning off detector!"
             )
-            await self.acquire.write(0)
-            await self.det_off.write(True)
+            await self.acquire.write(0),
+            await self.det_off.write(True),
+            await self.max_count_exceeded.write(True),
         return value
 
     async def cleanup(self) -> None:
