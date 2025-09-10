@@ -491,12 +491,15 @@ class DetectorIOC(PVGroup):
     acquisition_status = pvproperty(value=0, name="ACQ:STATUS", read_only=True)
 
     # Detector control
-    det_off = pvproperty(value=False, name="DET:OFF", dtype=bool)
-    """Turn off the detector"""
+    det_off = pvproperty(value="No", name="DET:OFF", enum_strings=("No", "Yes"), dtype=bool)
+    """Turn off the detector when this is set to 'On'"""
     max_count = pvproperty(value=0, name="DET:MAX_COUNT", dtype=int)
     """Maximum value of a single pixel of the detector"""
     max_count_threshold = pvproperty(value=155, name="DET:MAX_COUNT_THRESH", dtype=int)
     """Threshold for the maximum value of a single pixel of the detector"""
+    max_count_exceeded = pvproperty(value="No", name="DET:MAX_COUNT_EXCEEDED", enum_strings=("No", "Yes"), dtype=bool)
+    """Indicates if the maximum count has exceeded the threshold"""
+
 
     # File writing
     file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
@@ -1011,7 +1014,7 @@ class DetectorIOC(PVGroup):
             else:
                 logger.error(f"Failed to get actual number of scans, got: {response}")
 
-    @state.scan(period=0.1)  # 100ms scan - state changes are infrequent
+    @state.scan(period=0.05)  # 50ms scan - state changes can be frequent in fixed mode
     async def state(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for state changes."""
         response = await self.tcp_client.get_parameter(
@@ -1091,13 +1094,19 @@ class DetectorIOC(PVGroup):
             if instance.value == value:
                 msg = f"Acquire is already '{value}'"
                 logger.error(msg)
-                raise RuntimeError(msg)
+                return value
 
             if value > 0:
+                if self.max_count_exceeded.value == "Yes":
+                    raise RuntimeError((
+                        "Acquisition cannot be started due to max count threshold exceeded. "
+                        "If it is safe to do so, reset the max count exceeded flag."
+                    ))
                 response: dict[str, Any] | None = await self.tcp_client.send_command(
                     "ACTION", action="START"
                 )
                 if response:
+                    logger.info("Acquisition started")
                     await self.acquisition_status.write(1)
                     if self.file_capture.value == "On":
                         await self.num_processed.write(0)
@@ -1134,8 +1143,20 @@ class DetectorIOC(PVGroup):
             logger.warning(
                 f"Maximum count threshold exceeded: {value} > {self.max_count_threshold.value}. Turning off detector!"
             )
-            await self.acquire.write(0)
-            await self.det_off.write(True)
+            if self.acquire.value == 1:
+                await self.acquire.write(0)
+            if not self.det_off.value:
+                await self.det_off.write(True)
+            await self.max_count_exceeded.write("Yes")
+        return value
+
+    @max_count_exceeded.putter
+    async def max_count_exceeded(self, instance: Any, value: bool) -> bool:
+        """Reset/acknowledge the max_count_exceeded flag."""
+        if value == "No" and instance.value == "Yes":
+            # Allow reset from Yes to No (acknowledge condition)
+            logger.info("Max count exceeded flag acknowledged and reset by operator")
+            return "No"
         return value
 
     async def cleanup(self) -> None:
