@@ -497,7 +497,7 @@ class DetectorIOC(PVGroup):
     """Maximum value of a single pixel of the detector"""
     max_count_threshold = pvproperty(value=155, name="DET:MAX_COUNT_THRESH", dtype=int)
     """Threshold for the maximum value of a single pixel of the detector"""
-    max_count_exceeded = pvproperty(value=False, name="DET:MAX_COUNT_EXCEEDED", read_only=True, dtype=bool)
+    max_count_exceeded = pvproperty(value=False, name="DET:MAX_COUNT_EXCEEDED", dtype=bool)
     """Indicates if the maximum count has exceeded the threshold"""
 
 
@@ -1097,6 +1097,11 @@ class DetectorIOC(PVGroup):
                 raise RuntimeError(msg)
 
             if value > 0:
+                if self.max_count_exceeded.value:
+                    raise RuntimeError((
+                        "Acquisition cannot be started due to max count threshold exceeded. "
+                        "If it is safe to do so, reset the max count exceeded flag."
+                    ))
                 response: dict[str, Any] | None = await self.tcp_client.send_command(
                     "ACTION", action="START"
                 )
@@ -1141,6 +1146,19 @@ class DetectorIOC(PVGroup):
             await self.det_off.write(True),
             await self.max_count_exceeded.write(True),
         return value
+
+    @max_count_exceeded.putter
+    async def max_count_exceeded(self, instance: Any, value: bool) -> bool:
+        """Reset/acknowledge the max_count_exceeded flag."""
+        if value and not instance.value:
+            # Prevent manual setting to True - this should only happen automatically
+            logger.warning("Cannot manually set max_count_exceeded to True")
+            raise ValueError("max_count_exceeded can only be reset to False by operators")
+        elif not value and instance.value:
+            # Allow reset from True to False (acknowledge condition)
+            logger.info("Max count exceeded flag acknowledged and reset by operator")
+            return False
+        return instance.value
 
     async def cleanup(self) -> None:
         """Clean up background tasks and connections."""
