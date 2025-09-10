@@ -741,7 +741,7 @@ class DetectorIOC(PVGroup):
         data = await self.tcp_client.get_data()
         if data:
             # FIXME: May have to use the live data port to get the max count more frequently
-            await self.max_count.write(np.max(data["channel_2_data"]))
+            #await self.max_count.write(np.max(data["channel_2_data"]))
             data["deflX"] = response["values"][0]["value"]
             return data
         else:
