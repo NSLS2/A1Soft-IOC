@@ -21,6 +21,14 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     det_max_count_threshold = Cpt(EpicsSignal, "DET:MAX_COUNT_THRESH")
     det_max_count_exceeded = Cpt(EpicsSignal, "DET:MAX_COUNT_EXCEEDED")
 
+    # Live data monitoring
+    live_monitoring = Cpt(EpicsSignal, "LIVE:MONITORING")
+    live_max_count = Cpt(EpicsSignalRO, "LIVE:MAX_COUNT")
+    live_total_count = Cpt(EpicsSignalRO, "LIVE:TOTAL_COUNT")
+    live_update_rate = Cpt(EpicsSignal, "LIVE:UPDATE_RATE")
+    live_status = Cpt(EpicsSignalRO, "LIVE:STATUS")
+    live_last_update = Cpt(EpicsSignalRO, "LIVE:LAST_UPDATE")
+
     # Status and info
     connection_status = Cpt(EpicsSignalRO, "SYS:CONNECTED")
     last_sync = Cpt(EpicsSignalRO, "SYS:LAST_SYNC")
