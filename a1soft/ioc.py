@@ -41,11 +41,13 @@ class DetectorTCPClient:
         json_port: int = 1234,
         data_port: int = 1235,
         live_port: int = 1236,
+        auto_reconnect: bool = True,
     ) -> None:
         self.host: str = host
         self.json_port: int = json_port
         self.data_port: int = data_port
         self.live_port: int = live_port
+        self.auto_reconnect: bool = auto_reconnect
 
         # StreamReader/StreamWriter pairs for each connection
         self.json_reader: asyncio.StreamReader | None = None
@@ -67,6 +69,11 @@ class DetectorTCPClient:
         self._data_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
         self._data_reader_running: bool = False
         self._current_cmd_id = 0
+
+        # Auto-reconnect infrastructure
+        self._reconnect_task: asyncio.Task | None = None
+        self._reconnect_event: asyncio.Event = asyncio.Event()
+        self._shutdown_event: asyncio.Event = asyncio.Event()
 
     @property
     def _cmd_id(self) -> int:
@@ -113,11 +120,104 @@ class DetectorTCPClient:
             self._data_reader_running = True
             self._data_reader_task = asyncio.create_task(self._data_reader_loop())
 
+            # Start auto-reconnect task if enabled
+            if self.auto_reconnect and not self._reconnect_task:
+                self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+
             logger.info("Connected to detector TCP interface using asyncio streams")
         except Exception as e:
             logger.error(f"Failed to connect to detector: {e}")
             await self._cleanup_connections()
             self.connected = False
+
+    async def _reconnect_loop(self) -> None:
+        """Background task that handles automatic reconnection."""
+        logger.info("Auto-reconnect loop started")
+
+        while not self._shutdown_event.is_set():
+            try:
+                # Wait for reconnection to be requested
+                await self._reconnect_event.wait()
+
+                if self._shutdown_event.is_set():
+                    break
+
+                logger.info("Connection lost, attempting to reconnect...")
+
+                # Keep trying to reconnect indefinitely
+                while not self._shutdown_event.is_set():
+                    try:
+                        # Clean up existing connections
+                        await self._cleanup_connections()
+
+                        # Clear the reconnect event before attempting connection
+                        self._reconnect_event.clear()
+
+                        # Attempt to connect
+                        await self._attempt_connection()
+
+                        if self.connected:
+                            logger.info("Successfully reconnected to detector")
+                            break
+                        else:
+                            logger.info(
+                                "Reconnection attempt failed, retrying in 2 seconds..."
+                            )
+                            await asyncio.sleep(2.0)
+
+                    except Exception as e:
+                        logger.debug(f"Reconnection attempt failed: {e}")
+                        await asyncio.sleep(2.0)
+
+            except asyncio.CancelledError:
+                logger.info("Auto-reconnect loop cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in reconnect loop: {e}")
+                await asyncio.sleep(2.0)
+
+        logger.info("Auto-reconnect loop stopped")
+
+    async def _attempt_connection(self) -> None:
+        """Attempt to establish connection without starting background tasks."""
+        try:
+            # Connect to JSON port
+            self.json_reader, self.json_writer = await asyncio.open_connection(
+                self.host, self.json_port
+            )
+
+            # Connect to data port
+            self.data_reader, self.data_writer = await asyncio.open_connection(
+                self.host, self.data_port
+            )
+
+            # Connect to live port
+            self.live_reader, self.live_writer = await asyncio.open_connection(
+                self.host, self.live_port
+            )
+
+            self.connected = True
+
+            # Start background response reader
+            self._response_reader_running = True
+            self._response_reader_task = asyncio.create_task(
+                self._response_reader_loop()
+            )
+
+            # Start background data reader
+            self._data_reader_running = True
+            self._data_reader_task = asyncio.create_task(self._data_reader_loop())
+
+        except Exception as e:
+            await self._cleanup_connections()
+            self.connected = False
+            raise e
+
+    def _trigger_reconnect(self) -> None:
+        """Trigger reconnection attempt."""
+        if self.auto_reconnect and not self._shutdown_event.is_set():
+            self.connected = False
+            self._reconnect_event.set()
 
     async def _cleanup_connections(self) -> None:
         """Helper to close all stream connections."""
@@ -135,6 +235,18 @@ class DetectorTCPClient:
 
     async def disconnect(self) -> None:
         """Disconnect from all streams."""
+        # Signal shutdown to prevent reconnection
+        self._shutdown_event.set()
+
+        # Stop reconnect task
+        if self._reconnect_task:
+            self._reconnect_task.cancel()
+            try:
+                await self._reconnect_task
+            except asyncio.CancelledError:
+                pass
+            self._reconnect_task = None
+
         # Stop response reader
         self._response_reader_running = False
         if self._response_reader_task:
@@ -144,6 +256,16 @@ class DetectorTCPClient:
             except asyncio.CancelledError:
                 pass
             self._response_reader_task = None
+
+        # Stop data reader
+        self._data_reader_running = False
+        if self._data_reader_task:
+            self._data_reader_task.cancel()
+            try:
+                await self._data_reader_task
+            except asyncio.CancelledError:
+                pass
+            self._data_reader_task = None
 
         # Clean up pending responses
         for future in self._pending_responses.values():
@@ -159,7 +281,11 @@ class DetectorTCPClient:
         """Background task that waits for signals and then reads responses."""
         logger.info("Starting event-driven response reader")
 
-        while self._response_reader_running and self.connected:
+        while (
+            self._response_reader_running
+            and self.connected
+            and not self._shutdown_event.is_set()
+        ):
             try:
                 if not self.json_reader:
                     break
@@ -185,6 +311,15 @@ class DetectorTCPClient:
             except asyncio.CancelledError:
                 logger.info("Response reader cancelled")
                 break
+            except (
+                ConnectionResetError,
+                ConnectionAbortedError,
+                BrokenPipeError,
+                OSError,
+            ) as e:
+                logger.warning(f"Connection error in response reader: {e}")
+                self._trigger_reconnect()
+                break
             except Exception as e:
                 logger.error(f"Error in response reader: {e}")
                 await asyncio.sleep(0.1)  # Brief delay before retrying
@@ -193,7 +328,11 @@ class DetectorTCPClient:
 
     async def _data_reader_loop(self) -> None:
         logger.info("Starting data reader loop")
-        while self._data_reader_running and self.connected:
+        while (
+            self._data_reader_running
+            and self.connected
+            and not self._shutdown_event.is_set()
+        ):
             try:
                 if not self.data_reader:
                     break
@@ -205,6 +344,15 @@ class DetectorTCPClient:
                 self._data_queue.put_nowait(response)
             except asyncio.CancelledError:
                 logger.info("Data reader loop cancelled")
+                break
+            except (
+                ConnectionResetError,
+                ConnectionAbortedError,
+                BrokenPipeError,
+                OSError,
+            ) as e:
+                logger.warning(f"Connection error in data reader: {e}")
+                self._trigger_reconnect()
                 break
             except Exception as e:
                 logger.error(f"Error in data reader loop: {e}")
@@ -242,6 +390,16 @@ class DetectorTCPClient:
             return None
         except asyncio.IncompleteReadError:
             logger.error("Connection closed while reading response")
+            self._trigger_reconnect()
+            return None
+        except (
+            ConnectionResetError,
+            ConnectionAbortedError,
+            BrokenPipeError,
+            OSError,
+        ) as e:
+            logger.warning(f"Connection error reading response: {e}")
+            self._trigger_reconnect()
             return None
         except Exception as e:
             logger.error(f"Error reading response: {e}")
@@ -286,6 +444,18 @@ class DetectorTCPClient:
                 self.json_writer.write(msg)
                 await self.json_writer.drain()
 
+            except (
+                ConnectionResetError,
+                ConnectionAbortedError,
+                BrokenPipeError,
+                OSError,
+            ) as e:
+                logger.warning(f"Connection error sending command: {e}")
+                # Clean up pending response
+                self._pending_responses.pop(cmd_id, None)
+                response_future.cancel()
+                self._trigger_reconnect()
+                return None
             except Exception as e:
                 logger.error(f"Command failed: {e}")
                 # Clean up pending response
@@ -408,6 +578,16 @@ class DetectorTCPClient:
             return None
         except asyncio.IncompleteReadError:
             logger.error("Connection closed while reading data")
+            self._trigger_reconnect()
+            return None
+        except (
+            ConnectionResetError,
+            ConnectionAbortedError,
+            BrokenPipeError,
+            OSError,
+        ) as e:
+            logger.warning(f"Connection error reading data: {e}")
+            self._trigger_reconnect()
             return None
         except Exception as e:
             logger.error(f"Error reading data: {e}")
@@ -436,6 +616,16 @@ class DetectorTCPClient:
             logger.error(
                 f"Connection closed while reading channel data, got {len(e.partial)}/{expected_length} bytes"
             )
+            self._trigger_reconnect()
+            return None
+        except (
+            ConnectionResetError,
+            ConnectionAbortedError,
+            BrokenPipeError,
+            OSError,
+        ) as e:
+            logger.warning(f"Connection error reading channel data: {e}")
+            self._trigger_reconnect()
             return None
         except Exception as e:
             logger.error(f"Error reading channel data: {e}")
@@ -741,7 +931,7 @@ class DetectorIOC(PVGroup):
         data = await self.tcp_client.get_data()
         if data:
             # FIXME: May have to use the live data port to get the max count more frequently
-            #await self.max_count.write(np.max(data["channel_2_data"]))
+            # await self.max_count.write(np.max(data["channel_2_data"]))
             data["deflX"] = response["values"][0]["value"]
             return data
         else:
@@ -1071,9 +1261,31 @@ class DetectorIOC(PVGroup):
         await self.connection_status.write(1 if self.tcp_client.connected else 0)
 
         if not self.tcp_client.connected:
-            raise RuntimeError("Failed to connect to detector")
+            if self.tcp_client.auto_reconnect:
+                logger.warning(
+                    "Initial connection failed, auto-reconnect will attempt to connect"
+                )
+                # Start the reconnect task even if initial connection fails
+                if not self.tcp_client._reconnect_task:
+                    self.tcp_client._reconnect_task = asyncio.create_task(
+                        self.tcp_client._reconnect_loop()
+                    )
+                    self.tcp_client._trigger_reconnect()
+            else:
+                raise RuntimeError("Failed to connect to detector")
 
         logger.info("Detector connection established")
+
+    @connection_status.scan(period=2.0)
+    async def connection_status(self, instance: Any, async_lib: Any) -> None:
+        """Monitor connection status and update PV."""
+        current_status = 1 if self.tcp_client.connected else 0
+        if instance.value != current_status:
+            await self.connection_status.write(current_status)
+            if current_status:
+                logger.info("Connection restored")
+            else:
+                logger.warning("Connection lost")
 
     async def _update_pvs_from_response(
         self, response: dict[str, Any], async_lib: Any
@@ -1169,6 +1381,8 @@ class DetectorIOC(PVGroup):
 
     async def cleanup(self) -> None:
         """Clean up background tasks and connections."""
+        logger.info("Starting IOC cleanup...")
+
         if self._sync_task:
             self._sync_task.cancel()
         if self._update_listener_task:
@@ -1186,6 +1400,8 @@ class DetectorIOC(PVGroup):
             except Exception as e:
                 logger.error(f"Error during file writer cleanup: {e}")
                 self._file_writer_task.cancel()
+
+        # Disconnect TCP client (this will handle auto-reconnect cleanup)
         await self.tcp_client.disconnect()
         logger.info("Cleanup completed")
 
