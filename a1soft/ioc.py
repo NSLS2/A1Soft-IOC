@@ -1338,7 +1338,7 @@ class DetectorIOC(PVGroup):
     @act_scans.scan(period=0.05)
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for acutal number of scans completed."""
-        if self.acquisition_status.value == 1 and self.file_capture.value == "On":
+        if self.acquisition_status.value == 1:
             num_processed = self.num_processed.value
 
             # Get actScans parameter
@@ -1358,19 +1358,20 @@ class DetectorIOC(PVGroup):
                             f"FRAME SKIPPED: {act_scans_value} (was {num_processed})"
                         )
 
-                    await self._write_image_to_file()
+                    if self.file_capture.value == "On":
+                        await self._write_image_to_file()
+                        # Increment num_captured when the last scan is completed
+                        if act_scans_value == self.num_scans.value:
+                            await self.num_captured.write(self.num_captured.value + 1)
+                            logger.info(
+                                f"Committing frame {self.num_captured.value} to file"
+                            )
 
                     await async_lib.library.gather(
                         self.num_processed.write(act_scans_value),
                         self.act_scans.write(act_scans_value),
                     )
 
-                    # Increment num_captured when the last scan is completed
-                    if act_scans_value == self.num_scans.value:
-                        await self.num_captured.write(self.num_captured.value + 1)
-                        logger.info(
-                            f"Committing frame {self.num_captured.value} to file"
-                        )
             else:
                 logger.error(f"Failed to get actual number of scans, got: {response}")
 
@@ -1413,10 +1414,6 @@ class DetectorIOC(PVGroup):
         """Set the state of the detector."""
         async with self._state_lock:
             if value == "STANDBY" and value != instance.value:
-                response = await self.tcp_client.get_parameter(self._pvs_to_param_names[self.act_scans])
-                if response and "values" in response:
-                    act_scans_value = response["values"][0]["value"]
-                    await self.act_scans.write(act_scans_value)
                 if self.acquire.value == 1:
                     await self.acquire.write(0)
             return value
