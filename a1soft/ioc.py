@@ -794,6 +794,10 @@ class DetectorIOC(PVGroup):
 
     async def _param_write(self, instance: PvpropertyData, value: Any) -> Any:
         """Set a detector parameter and return the value that was actually set."""
+        if (
+            isinstance(value, float) and not np.isclose(instance.value, value)
+        ) or (not isinstance(value, float) and instance.value != value):
+            return instance.value
         param_name = self._pvs_to_param_names[instance]
         response = await self.tcp_client.set_parameter(param_name, value)
         if not response:
