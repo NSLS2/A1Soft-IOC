@@ -38,7 +38,6 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(1.0)
         device.file_name.set("test_count.nxs").wait(1.0)
         device.num_scans.set(1).wait(1.0)
-        device.det_max_count_threshold.set(5000).wait(1.0)
 
         # Execute count plan
         documents = []
@@ -68,7 +67,7 @@ class TestDeviceWithBluesky:
         # Configure device
         device.file_path.set(str(test_output_dir)).wait(1.0)
         device.file_name.set("test_staging.nxs").wait(1.0)
-        device.det_max_count_threshold.set(5000).wait(1.0)
+        device._count_threshold.set(5000).wait(1.0)
 
         # Initially unstaged
         assert device._staged == Staged.no, "Should start unstaged"
@@ -105,7 +104,6 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(1.0)
         device.file_name.set("test_multi_trigger.nxs").wait(1.0)
         device.num_scans.set(1).wait(1.0)
-        device.det_max_count_threshold.set(5000).wait(1.0)
 
         documents = []
         RE.subscribe(lambda name, doc: documents.append((name, doc)))
@@ -127,7 +125,9 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(1.0)
         device.file_name.set("test_safety_limits.nxs").wait(1.0)
         device.num_scans.set(1).wait(1.0)
-        device.det_max_count_threshold.set(5).wait(1.0)
+        device.live_monitoring.set("On").wait(1.0)
+        # Set threshold to -1 to ensure that the safety limits are exceeded
+        device.live_max_count_threshold.set(-1).wait(1.0)
 
         # Should not run the second iteration
         with pytest.raises(FailedStatus):
@@ -142,7 +142,6 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(1.0)
         device.file_name.set("test_multi_trigger.nxs").wait(1.0)
         device.num_scans.set(1).wait(1.0)
-        device.det_max_count_threshold.set(5000).wait(1.0)
 
         documents = []
         RE.subscribe(lambda name, doc: documents.append((name, doc)))
@@ -165,7 +164,6 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(1.0)
         device.file_name.set("test_multi_trigger.nxs").wait(1.0)
         device.num_scans.set(1).wait(1.0)
-        device.det_max_count_threshold.set(5000).wait(1.0)
 
         documents = []
         RE.subscribe(lambda name, doc: documents.append((name, doc)))

@@ -252,7 +252,6 @@ class TestFileCounters:
 
         device.file_path.set(file_path).wait(1.0)
         device.file_name.set(file_name).wait(1.0)
-        device.det_max_count_threshold.set(5000).wait(1.0)
         device.file_capture.set("On").wait(1.0)
 
         try:
