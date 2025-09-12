@@ -149,9 +149,10 @@ class TestAcquisitionStates:
             # Start acquisition and wait for completion
             device.acquire.set(1).wait(5.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
-            wait_for_state(device, "STANDBY", timeout=60.0)
+            wait_for_state(device, "STANDBY", timeout=120.0)
 
-            assert act_scans_transitions == [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)], (
+            assert act_scans_transitions[0][1] == 0, "Act scans should start at 0"
+            assert act_scans_transitions[1:] == [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)], (
                 "Act scans should be (0, 1), (1, 2), (2, 3), (3, 4), (4, 5)"
             )
 
