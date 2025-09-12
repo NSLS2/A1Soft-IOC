@@ -813,10 +813,7 @@ class DetectorIOC(PVGroup):
         if (
             isinstance(actual_value, float) and not np.isclose(actual_value, value)
         ) or (not isinstance(actual_value, float) and actual_value != value):
-            logger.error(
-                f"Failed to set {param_name} to {value}, was set to {actual_value} instead."
-            )
-            raise ValueError(
+            logger.warning(
                 f"Failed to set {param_name} to {value}, was set to {actual_value} instead."
             )
         return actual_value
