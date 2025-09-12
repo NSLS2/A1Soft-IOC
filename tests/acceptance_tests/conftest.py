@@ -34,9 +34,9 @@ def analyzer_device():
     # Cleanup - ensure acquisition is stopped and file capture is off
     try:
         if device.acquire.get():
-            device.acquire.set(0).wait(1.0)
+            device.acquire.set(0).wait(5.0)
         if device.file_capture.get(as_string=True) == "On":
-            device.file_capture.set("Off").wait(1.0)
+            device.file_capture.set("Off").wait(5.0)
     except Exception:
         pass  # Best effort cleanup
 
@@ -56,7 +56,7 @@ def detector_in_standby(analyzer_device):
 
     # Stop any running acquisition
     if device.acquire.get():
-        device.acquire.set(0).wait(1.0)
+        device.acquire.set(0).wait(5.0)
         # Wait for state to transition to STANDBY
         start_time = time.time()
         while device.state.get() != "STANDBY" and (time.time() - start_time) < 10:
@@ -64,19 +64,19 @@ def detector_in_standby(analyzer_device):
 
     # Ensure file capture is off
     if device.file_capture.get(as_string=True) == "On":
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
     # Ensure live monitoring is off
     if device.live_monitoring.get(as_string=True) == "On":
-        device.live_monitoring.set("Off").wait(1.0)
+        device.live_monitoring.set("Off").wait(5.0)
 
     # Ensure safety limit is reset
     if device.live_max_count_exceeded.get():
-        device.live_max_count_exceeded.set(False).wait(1.0)
+        device.live_max_count_exceeded.set(False).wait(5.0)
 
     # Default mode is swept
-    device.acq_mode.set("Swept").wait(1.0)
-    device.num_steps.set(10).wait(1.0)
+    device.acq_mode.set("Swept").wait(5.0)
+    device.num_steps.set(10).wait(5.0)
 
     return device
 

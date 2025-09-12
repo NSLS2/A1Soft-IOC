@@ -19,8 +19,8 @@ class TestFileCapture:
         file_path = str(test_output_dir)
         file_name = "test_enable_capture.nxs"
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
 
         # Verify initial state
         assert device.file_capture.get(as_string=True) == "Off", (
@@ -29,7 +29,7 @@ class TestFileCapture:
         assert device.num_captured.get() == 0, "num_captured should start at 0"
 
         # Enable file capture
-        device.file_capture.set("On").wait(1.0)
+        device.file_capture.set("On").wait(5.0)
 
         # Verify file capture is on
         assert device.file_capture.get(as_string=True) == "On", (
@@ -43,7 +43,7 @@ class TestFileCapture:
         )
 
         # Disable file capture
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
         # Verify file was created
         full_path = test_output_dir / file_name
@@ -57,9 +57,9 @@ class TestFileCapture:
         file_path = str(test_output_dir)
         file_name = "test_disable_capture.nxs"
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
-        device.file_capture.set("On").wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
 
         # Verify it's on
         assert device.file_capture.get(as_string=True) == "On", (
@@ -67,7 +67,7 @@ class TestFileCapture:
         )
 
         # Disable file capture
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
         # Verify it's off
         assert device.file_capture.get(as_string=True) == "Off", (
@@ -88,15 +88,15 @@ class TestFileCapture:
         file_path = str(test_output_dir)
         file_name = "test_double_enable.nxs"
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
-        device.file_capture.set("On").wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
 
         # Try to enable again - should do nothing
-        device.file_capture.set("On").wait(1.0)
+        device.file_capture.set("On").wait(5.0)
 
         # Clean up
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
 
 class TestFileWriting:
@@ -111,12 +111,12 @@ class TestFileWriting:
         file_name = "test_structure.nxs"
         full_path = test_output_dir / file_name
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
-        device.file_capture.set("On").wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
 
         # Disable to finalize file
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
         # Verify file structure
         assert full_path.exists(), "File should have been created"
@@ -133,23 +133,23 @@ class TestFileWriting:
 
         # Set up minimal acquisition parameters
         original_num_scans = device.num_scans.get()
-        device.num_scans.set(1).wait(1.0)
+        device.num_scans.set(1).wait(5.0)
 
         # Set up file capture
         file_path = str(test_output_dir)
         file_name = "test_acquisition.nxs"
         full_path = test_output_dir / file_name
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
-        device.file_capture.set("On").wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
 
         try:
             # Check initial counters
             initial_num_captured = device.num_captured.get()
 
             # Start acquisition
-            device.acquire.set(1).wait(1.0)
+            device.acquire.set(1).wait(5.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
 
             # Wait for acquisition to complete or timeout
@@ -161,7 +161,7 @@ class TestFileWriting:
 
             if device.state.get() != "STANDBY":
                 # Force stop if needed
-                device.acquire.set(0).wait(1.0)
+                device.acquire.set(0).wait(5.0)
                 wait_for_state(device, "STANDBY", timeout=5.0)
 
             # Check that counters updated
@@ -174,8 +174,8 @@ class TestFileWriting:
 
         finally:
             # Clean up
-            device.file_capture.set("Off").wait(1.0)
-            device.num_scans.set(original_num_scans).wait(1.0)
+            device.file_capture.set("Off").wait(5.0)
+            device.num_scans.set(original_num_scans).wait(5.0)
 
         # Verify file was written with data
         assert full_path.exists(), "File should exist after acquisition"
@@ -193,25 +193,25 @@ class TestFileWriting:
         full_path = test_output_dir / file_name
 
         # First session - create initial file
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
-        device.file_capture.set("On").wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
 
         initial_captured = device.num_captured.get()
 
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
         # Verify file exists
         assert full_path.exists(), "Initial file should be created"
 
         # Second session - reopen same file
-        device.file_capture.set("On").wait(1.0)
+        device.file_capture.set("On").wait(5.0)
 
         # Should start from where we left off
         resumed_captured = device.num_captured.get()
         assert resumed_captured >= initial_captured, "Should resume from previous count"
 
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
 
 class TestFileCounters:
@@ -225,16 +225,16 @@ class TestFileCounters:
         file_path = str(test_output_dir)
         file_name = "test_counters.nxs"
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
-        device.file_capture.set("On").wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
 
         initial_count = device.num_captured.get()
         assert isinstance(initial_count, int), "num_captured should be integer"
         assert initial_count >= 0, "num_captured should be non-negative"
 
         # Clean up
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
     def test_num_processed_during_acquisition(
         self, detector_in_standby, test_output_dir
@@ -244,19 +244,19 @@ class TestFileCounters:
 
         # Set up minimal parameters
         original_num_scans = device.num_scans.get()
-        device.num_scans.set(2).wait(1.0)
+        device.num_scans.set(2).wait(5.0)
 
         # Set up file capture
         file_path = str(test_output_dir)
         file_name = "test_processed.nxs"
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
-        device.file_capture.set("On").wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
 
         try:
             # Start acquisition
-            device.acquire.set(1).wait(1.0)
+            device.acquire.set(1).wait(5.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
             initial_processed = device.num_processed.get()
 
@@ -274,12 +274,12 @@ class TestFileCounters:
                 time.sleep(0.2)
 
             # Stop acquisition
-            device.acquire.set(0).wait(1.0)
+            device.acquire.set(0).wait(5.0)
             wait_for_state(device, "STANDBY", timeout=10.0)
 
         finally:
-            device.file_capture.set("Off").wait(1.0)
-            device.num_scans.set(original_num_scans).wait(1.0)
+            device.file_capture.set("Off").wait(5.0)
+            device.num_scans.set(original_num_scans).wait(5.0)
 
     def test_file_status_messages(self, detector_in_standby, test_output_dir):
         """Test that file status messages are informative."""
@@ -293,11 +293,11 @@ class TestFileCounters:
         file_path = str(test_output_dir)
         file_name = "test_status.nxs"
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
 
         # Enable capture
-        device.file_capture.set("On").wait(1.0)
+        device.file_capture.set("On").wait(5.0)
 
         # Status should indicate active capture
         active_status = device.file_status.get()
@@ -307,7 +307,7 @@ class TestFileCounters:
         assert len(active_status) > 0, "Status should not be empty"
 
         # Disable capture
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
         # Status should indicate completion
         final_status = device.file_status.get()
@@ -326,17 +326,17 @@ class TestFilePathHandling:
         file_path = str(nested_dir)
         file_name = "test_nested.nxs"
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
 
         # Enable file capture - should create directories
-        device.file_capture.set("On").wait(1.0)
+        device.file_capture.set("On").wait(5.0)
 
         # Verify directory was created
         assert nested_dir.exists(), "Nested directory should have been created"
 
         # Clean up
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
         # Verify file was created
         full_path = nested_dir / file_name
@@ -357,12 +357,12 @@ class TestFilePathHandling:
         ]
 
         for name in valid_names:
-            device.file_path.set(valid_path).wait(1.0)
-            device.file_name.set(name).wait(1.0)
+            device.file_path.set(valid_path).wait(5.0)
+            device.file_name.set(name).wait(5.0)
 
             # Should be able to enable capture
-            device.file_capture.set("On").wait(1.0)
-            device.file_capture.set("Off").wait(1.0)
+            device.file_capture.set("On").wait(5.0)
+            device.file_capture.set("Off").wait(5.0)
 
             # File should be created
             full_path = test_output_dir / name

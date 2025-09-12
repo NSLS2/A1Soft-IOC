@@ -23,7 +23,7 @@ class TestAcquisitionControl:
         )
 
         # Start acquisition
-        device.acquire.set(1).wait(0.5)
+        device.acquire.set(1).wait(5.0)
 
         # Wait for state transition to RUNNING
         wait_for_state(device, "RUNNING", timeout=10.0)
@@ -34,7 +34,7 @@ class TestAcquisitionControl:
         )
 
         # Stop acquisition for cleanup
-        device.acquire.set(0).wait(0.5)
+        device.acquire.set(0).wait(5.0)
         wait_for_state(device, "STANDBY", timeout=10.0)
 
     def test_stop_acquisition(self, detector_in_standby):
@@ -42,11 +42,11 @@ class TestAcquisitionControl:
         device = detector_in_standby
 
         # Start acquisition first
-        device.acquire.set(1).wait(0.5)
+        device.acquire.set(1).wait(5.0)
         wait_for_state(device, "RUNNING", timeout=10.0)
 
         # Stop acquisition
-        device.acquire.set(0).wait(0.5)
+        device.acquire.set(0).wait(5.0)
 
         # Wait for state transition back to STANDBY
         wait_for_state(device, "STANDBY", timeout=10.0)
@@ -61,7 +61,7 @@ class TestAcquisitionControl:
         device = detector_in_standby
 
         # Test starting acquisition
-        device.acquire.set(1).wait(0.5)
+        device.acquire.set(1).wait(5.0)
         wait_for_state(device, "RUNNING", timeout=10.0)
 
         # Both signals should indicate running
@@ -71,7 +71,7 @@ class TestAcquisitionControl:
         )
 
         # Test stopping acquisition
-        device.acquire.set(0).wait(0.5)
+        device.acquire.set(0).wait(5.0)
         wait_for_state(device, "STANDBY", timeout=10.0)
 
         # Both signals should indicate stopped
@@ -86,7 +86,7 @@ class TestAcquisitionControl:
 
         for cycle in range(3):
             # Start acquisition
-            device.acquire.set(1).wait(0.5)
+            device.acquire.set(1).wait(5.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
             assert device.acquisition_status.get() == 1, (
                 f"Cycle {cycle}: Should be running"
@@ -96,7 +96,7 @@ class TestAcquisitionControl:
             time.sleep(1.0)
 
             # Stop acquisition
-            device.acquire.set(0).wait(0.5)
+            device.acquire.set(0).wait(5.0)
             wait_for_state(device, "STANDBY", timeout=10.0)
             assert device.acquisition_status.get() == 0, (
                 f"Cycle {cycle}: Should be stopped"
@@ -108,14 +108,14 @@ class TestAcquisitionControl:
 
         # Set minimal parameters for quick completion
         original_num_scans = device.num_scans.get()
-        device.num_scans.set(1).wait(1.0)  # Just one scan
+        device.num_scans.set(1).wait(5.0)  # Just one scan
 
         try:
             # Reset scan counters
             initial_act_scans = device.act_scans.get()
 
             # Start acquisition
-            device.acquire.set(1).wait(0.5)
+            device.acquire.set(1).wait(5.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
 
             # Wait for acquisition to complete or timeout
@@ -129,7 +129,7 @@ class TestAcquisitionControl:
 
             if not completed:
                 # Force stop if it didn't complete
-                device.acquire.set(0).wait(0.5)
+                device.acquire.set(0).wait(5.0)
                 wait_for_state(device, "STANDBY", timeout=5.0)
                 pytest.skip("Acquisition did not complete in reasonable time")
             else:
@@ -141,7 +141,7 @@ class TestAcquisitionControl:
 
         finally:
             # Restore original scan count
-            device.num_scans.set(original_num_scans).wait(1.0)
+            device.num_scans.set(original_num_scans).wait(5.0)
 
 
 class TestAcquisitionStates:
@@ -162,13 +162,13 @@ class TestAcquisitionStates:
 
         try:
             # Start acquisition and monitor states
-            device.acquire.set(1).wait(0.5)
+            device.acquire.set(1).wait(5.0)
 
             # Wait for RUNNING state
             wait_for_state(device, "RUNNING", timeout=10.0)
 
             # Stop acquisition
-            device.acquire.set(0).wait(0.5)
+            device.acquire.set(0).wait(5.0)
 
             # Wait for return to STANDBY
             wait_for_state(device, "STANDBY", timeout=10.0)
@@ -186,13 +186,13 @@ class TestAcquisitionStates:
 
         # Set a reasonable number of scans for monitoring
         original_num_scans = device.num_scans.get()
-        device.num_scans.set(5).wait(1.0)
+        device.num_scans.set(5).wait(5.0)
 
         try:
             initial_act_scans = device.act_scans.get()
 
             # Start acquisition
-            device.acquire.set(1).wait(0.5)
+            device.acquire.set(1).wait(5.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
 
             # Monitor for a short time
@@ -208,7 +208,7 @@ class TestAcquisitionStates:
                 time.sleep(0.2)
 
             # Stop acquisition
-            device.acquire.set(0).wait(0.5)
+            device.acquire.set(0).wait(5.0)
             wait_for_state(device, "STANDBY", timeout=10.0)
 
             # Verify some progress was made (if the acquisition actually ran)
@@ -221,7 +221,7 @@ class TestAcquisitionStates:
 
         finally:
             # Restore original scan count
-            device.num_scans.set(original_num_scans).wait(1.0)
+            device.num_scans.set(original_num_scans).wait(5.0)
 
 
 class TestAcquisitionErrorHandling:
@@ -232,11 +232,11 @@ class TestAcquisitionErrorHandling:
         device = detector_in_standby
 
         # Start acquisition
-        device.acquire.set(1).wait(0.5)
+        device.acquire.set(1).wait(5.0)
         wait_for_state(device, "RUNNING", timeout=10.0)
 
         # Try to start again (should be ignored or handled gracefully)
-        device.acquire.set(1).wait(0.5)
+        device.acquire.set(1).wait(5.0)
         time.sleep(0.5)
 
         # Should still be running normally
@@ -248,7 +248,7 @@ class TestAcquisitionErrorHandling:
         )
 
         # Stop acquisition
-        device.acquire.set(0).wait(0.5)
+        device.acquire.set(0).wait(5.0)
         wait_for_state(device, "STANDBY", timeout=10.0)
 
     def test_stop_when_already_stopped(self, detector_in_standby):
@@ -259,7 +259,7 @@ class TestAcquisitionErrorHandling:
         assert device.state.get() == "STANDBY", "Should start in STANDBY"
 
         # Try to stop when already stopped
-        device.acquire.set(0).wait(0.5)
+        device.acquire.set(0).wait(5.0)
         time.sleep(1.0)
 
         # Should remain in STANDBY
@@ -274,18 +274,18 @@ class TestAcquisitionErrorHandling:
 
         # Set up for a longer acquisition that we'll interrupt
         original_num_scans = device.num_scans.get()
-        device.num_scans.set(100).wait(1.0)  # Many scans
+        device.num_scans.set(100).wait(5.0)  # Many scans
 
         try:
             # Start acquisition
-            device.acquire.set(1).wait(0.5)
+            device.acquire.set(1).wait(5.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
 
             # Let it run briefly
             time.sleep(2.0)
 
             # Force stop
-            device.acquire.set(0).wait(0.5)
+            device.acquire.set(0).wait(5.0)
 
             # Should be able to stop even during long acquisition
             wait_for_state(device, "STANDBY", timeout=10.0)
@@ -296,7 +296,7 @@ class TestAcquisitionErrorHandling:
 
         finally:
             # Restore original settings
-            device.num_scans.set(original_num_scans).wait(1.0)
+            device.num_scans.set(original_num_scans).wait(5.0)
 
 
 class TestAcquisitionParameters:

@@ -1413,6 +1413,10 @@ class DetectorIOC(PVGroup):
         """Set the state of the detector."""
         async with self._state_lock:
             if value == "STANDBY" and value != instance.value:
+                response = await self.tcp_client.get_parameter(self._pvs_to_param_names[self.act_scans])
+                if response and "values" in response:
+                    act_scans_value = response["values"][0]["value"]
+                    await self.act_scans.write(act_scans_value)
                 if self.acquire.value == 1:
                     await self.acquire.write(0)
             return value
