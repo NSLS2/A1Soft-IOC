@@ -1,6 +1,9 @@
 import pytest
 import time
 import asyncio
+import platform
+import os
+from pathlib import Path
 
 from a1soft.device import SpectrumAnalyzer
 
@@ -42,10 +45,13 @@ def analyzer_device():
 
 
 @pytest.fixture
-def test_output_dir(tmp_path):
-    """Fixture providing a temporary directory for test outputs."""
-    test_dir = tmp_path / "test_data"
-    test_dir.mkdir(exist_ok=True)
+def test_output_dir():
+    """Fixture providing an OS-specific temporary directory for test outputs."""
+    # Hardcoded Windows temporary path
+    # Currently the IOC always runs on Windows
+    temp_base = Path(os.environ.get("TEMP", r"C:\Windows\Temp"))
+    test_dir = temp_base / "A1Soft_IOC_Tests"
+    test_dir.mkdir(exist_ok=True, parents=True)
     return test_dir
 
 
