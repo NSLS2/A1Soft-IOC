@@ -72,7 +72,7 @@ class DetectorTCPClient:
 
         # Live data monitoring infrastructure
         self._live_reader_task: asyncio.Task | None = None
-        self._live_queue: asyncio.Queue = asyncio.Queue(maxsize=100)  # Smaller buffer for live data
+        self._live_queue: asyncio.Queue = asyncio.Queue(maxsize=1) # Only store the latest frame
         self._live_reader_running: bool = False
 
         # Auto-reconnect infrastructure
@@ -738,10 +738,8 @@ class DetectorTCPClient:
                 "height": height,
                 "length": length,
                 "max_count": 0,
-                "total_count": 0,
                 "timestamp": time.time(),
             }
-            logger.info(f"Live data header: {result}")
 
             # Read pixel data if length > 0
             if length > 0:
@@ -752,8 +750,6 @@ class DetectorTCPClient:
                 
                 # Calculate statistics for monitoring purposes
                 result["max_count"] = int(np.max(pixel_data))
-                result["total_count"] = int(np.sum(pixel_data))
-                result["pixel_count"] = len(pixel_data)
                 
                 # Don't store the full pixel array to save memory - just the statistics
                 # Full arrays are available via the data port when needed
@@ -834,17 +830,6 @@ class DetectorIOC(PVGroup):
         value="No", name="DET:OFF", enum_strings=("No", "Yes"), dtype=bool
     )
     """Turn off the detector when this is set to 'On'"""
-    max_count = pvproperty(value=0, name="DET:MAX_COUNT", dtype=int)
-    """Maximum value of a single pixel of the detector"""
-    max_count_threshold = pvproperty(value=155, name="DET:MAX_COUNT_THRESH", dtype=int)
-    """Threshold for the maximum value of a single pixel of the detector"""
-    max_count_exceeded = pvproperty(
-        value="No",
-        name="DET:MAX_COUNT_EXCEEDED",
-        enum_strings=("No", "Yes"),
-        dtype=bool,
-    )
-    """Indicates if the maximum count has exceeded the threshold"""
 
     # Live data monitoring
     live_monitoring = pvproperty(
@@ -855,22 +840,23 @@ class DetectorIOC(PVGroup):
         value=0, name="LIVE:MAX_COUNT", read_only=True, dtype=int
     )
     """Current maximum pixel count from live data stream"""
-    live_total_count = pvproperty(
-        value=0, name="LIVE:TOTAL_COUNT", read_only=True, dtype=int
-    )
-    """Current total count from live data stream"""
     live_update_rate = pvproperty(
         value=10.0, name="LIVE:UPDATE_RATE", dtype=float, precision=1
     )
     """Live data PV update rate in Hz (0.1 to 50.0)"""
-    live_status = pvproperty(
-        value="", name="LIVE:STATUS", read_only=True, dtype=ChannelType.STRING
-    )
-    """Status of live data monitoring"""
     live_last_update = pvproperty(
         value="", name="LIVE:LAST_UPDATE", read_only=True, dtype=ChannelType.STRING
     )
     """Timestamp of last live data update"""
+    max_count_threshold = pvproperty(value=150, name="LIVE:MAX_COUNT_THRESH", dtype=int)
+    """Threshold for the maximum value of a single pixel of the detector"""
+    max_count_exceeded = pvproperty(
+        value="No",
+        name="LIVE:MAX_COUNT_EXCEEDED",
+        enum_strings=("No", "Yes"),
+        dtype=bool,
+    )
+    """Indicates if the maximum count has exceeded the threshold"""
 
     # File writing
     file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
@@ -1533,20 +1519,6 @@ class DetectorIOC(PVGroup):
                 return False
         return value
 
-    @max_count.putter
-    async def max_count(self, instance: Any, value: int) -> int:
-        """Set the maximum count of the detector."""
-        if value > self.max_count_threshold.value:
-            logger.warning(
-                f"Maximum count threshold exceeded: {value} > {self.max_count_threshold.value}. Turning off detector!"
-            )
-            if self.acquire.value == 1:
-                await self.acquire.write(0)
-            if not self.det_off.value:
-                await self.det_off.write(True)
-            await self.max_count_exceeded.write("Yes")
-        return value
-
     @max_count_exceeded.putter
     async def max_count_exceeded(self, instance: Any, value: bool) -> bool:
         """Reset/acknowledge the max_count_exceeded flag."""
@@ -1566,11 +1538,9 @@ class DetectorIOC(PVGroup):
             if value == "On":
                 # Start live monitoring
                 if not self.tcp_client.connected:
-                    await self.live_status.write("Error: TCP client not connected")
                     return "Off"
                 
                 self._live_monitor_task = asyncio.create_task(self._live_monitor_loop())
-                await self.live_status.write("Live monitoring started")
                 logger.info("Live data monitoring started")
             else:
                 # Stop live monitoring
@@ -1582,7 +1552,6 @@ class DetectorIOC(PVGroup):
                         pass
                     self._live_monitor_task = None
                 
-                await self.live_status.write("Live monitoring stopped")
                 logger.info("Live data monitoring stopped")
 
             return value
@@ -1592,7 +1561,7 @@ class DetectorIOC(PVGroup):
         logger.info("Starting live data monitoring loop")
         
         # Validate update rate
-        update_rate = max(0.1, min(50.0, self.live_update_rate.value))
+        update_rate = self.live_update_rate.value
         update_interval = 1.0 / update_rate
         
         try:
@@ -1604,17 +1573,12 @@ class DetectorIOC(PVGroup):
                     if live_data:
                         current_time = time.strftime("%Y-%m-%d %H:%M:%S")
                         max_count = live_data["max_count"]
-                        total_count = live_data["total_count"]
                         
                         # Update PVs with live data
                         await asyncio.gather(
                             self.live_max_count.write(max_count),
-                            self.live_total_count.write(total_count),
                             self.live_last_update.write(current_time),
                         )
-                        
-                        # Update the main max_count PV for integration with existing system
-                        await self.max_count.write(max_count)
                         
                         # Emergency detection: check if max_count exceeds threshold
                         if max_count > self.max_count_threshold.value:
@@ -1646,7 +1610,6 @@ class DetectorIOC(PVGroup):
         try:
             # Set emergency status
             await asyncio.gather(
-                self.live_status.write(f"EMERGENCY SHUTDOWN: max_count={max_count}"),
                 self.max_count_exceeded.write("Yes"),
             )
             
@@ -1656,9 +1619,9 @@ class DetectorIOC(PVGroup):
                 await self.acquire.write(0)
             
             # Turn off detector
-            if not self.det_off.value:
+            if self.det_off.value == "No":
                 logger.critical("Emergency: Turning off detector")
-                await self.det_off.write(True)
+                await self.det_off.write("Yes")
             
             # Stop live monitoring
             await self.live_monitoring.write("Off")

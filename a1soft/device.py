@@ -17,17 +17,14 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
 
     # Detector control
     det_off = Cpt(EpicsSignal, "DET:OFF")
-    det_max_count = Cpt(EpicsSignalRO, "DET:MAX_COUNT")
-    det_max_count_threshold = Cpt(EpicsSignal, "DET:MAX_COUNT_THRESH")
-    det_max_count_exceeded = Cpt(EpicsSignal, "DET:MAX_COUNT_EXCEEDED")
 
     # Live data monitoring
     live_monitoring = Cpt(EpicsSignal, "LIVE:MONITORING")
     live_max_count = Cpt(EpicsSignalRO, "LIVE:MAX_COUNT")
-    live_total_count = Cpt(EpicsSignalRO, "LIVE:TOTAL_COUNT")
     live_update_rate = Cpt(EpicsSignal, "LIVE:UPDATE_RATE")
-    live_status = Cpt(EpicsSignalRO, "LIVE:STATUS")
     live_last_update = Cpt(EpicsSignalRO, "LIVE:LAST_UPDATE")
+    live_max_count_threshold = Cpt(EpicsSignal, "LIVE:MAX_COUNT_THRESH")
+    live_max_count_exceeded = Cpt(EpicsSignal, "LIVE:MAX_COUNT_EXCEEDED")
 
     # Status and info
     connection_status = Cpt(EpicsSignalRO, "SYS:CONNECTED")
@@ -137,9 +134,9 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         if value == "STANDBY" and old_value == "RUNNING":
             # Settle time for the detector to transition properly
             ttime.sleep(1.0)
-            if self.det_max_count_exceeded.get():
-                max_count = self.det_max_count.get()
-                max_count_threshold = self.det_max_count_threshold.get()
+            if self.live_max_count_exceeded.get():
+                max_count = self.live_max_count.get()
+                max_count_threshold = self.live_max_count_threshold.get()
                 self._status.set_exception(
                     RuntimeError(
                         f"Max count safety limit exceeded: {max_count} > {max_count_threshold}"
