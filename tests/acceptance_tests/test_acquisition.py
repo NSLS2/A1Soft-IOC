@@ -106,7 +106,7 @@ class TestAcquisitionStates:
                 transitions_seen.append((old_value, value))
 
         # Subscribe to state changes
-        device.state.subscribe(state_callback, run=True)
+        device.state.subscribe(state_callback, run=False)
 
         try:
             # Start acquisition and monitor states
