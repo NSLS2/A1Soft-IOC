@@ -135,8 +135,16 @@ There is also a live data socket for streaming data from the detector. This is o
 The "Live Data" must be configured to be on and the monitor must be enabled. There is no way to control this from
 the TCP server, so you must manually configure this in LabView.
 
-TODO: Figure out message spec
+The schema is
 
+| Name | Byte offset | Description |
+|------|-------------|-------------|
+| Marker | 0 - 2 | Message start marker (delimits frames) |
+| Index | 2 - 4 | The current frame number requested since acquisition start |
+| Width | 4 - 8 | The width of the image |
+| Height | 8 - 12 | The height of the image |
+| Length | 12 - 16 | The length of the image in bytes |
+| Image | 16 - (16 + Length) | The uint32 byte array for the first channel image, representing the current image being displayed |
 
 # Process Variables (PVs)
 

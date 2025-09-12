@@ -710,25 +710,38 @@ class DetectorTCPClient:
         """Read live data from detector live stream.
         
         Returns dict with parsed header info and pixel data summary, or None on error/timeout.
-        Uses a 20-byte header format (simpler than the 40-byte data port format).
+        Uses the 16-byte header format as documented in README.md Live Socket schema.
         """
         if not self.connected or not self.live_reader:
             return None
 
         try:
-            # Read 20-byte header
-            header_data = await self.live_reader.readexactly(20)
+            # Read 16-byte header according to Live Socket schema
+            header_data = await self.live_reader.readexactly(16)
 
-            # Parse header - simplified format compared to data port
-            # Based on testClient.py, bytes 16-20 contain length
-            length = int.from_bytes(header_data[16:20], byteorder="big", signed=False)
+            # Parse header according to documented schema:
+            # Marker (0-2): 2 bytes - Message start marker  
+            # Index (2-4): 2 bytes - Current frame number
+            # Width (4-8): 4 bytes - Width of image
+            # Height (8-12): 4 bytes - Height of image  
+            # Length (12-16): 4 bytes - Length of image in bytes
+            marker = int.from_bytes(header_data[0:2], byteorder="big", signed=False)
+            index = int.from_bytes(header_data[2:4], byteorder="big", signed=False)
+            width = int.from_bytes(header_data[4:8], byteorder="big", signed=False)
+            height = int.from_bytes(header_data[8:12], byteorder="big", signed=False)
+            length = int.from_bytes(header_data[12:16], byteorder="big", signed=False)
 
             result = {
+                "marker": marker,
+                "index": index,
+                "width": width,
+                "height": height,
                 "length": length,
                 "max_count": 0,
                 "total_count": 0,
                 "timestamp": time.time(),
             }
+            logger.info(f"Live data header: {result}")
 
             # Read pixel data if length > 0
             if length > 0:
