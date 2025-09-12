@@ -99,10 +99,11 @@ class TestAcquisitionStates:
         device = detector_in_standby
 
         # Track state changes
-        states_seen = []
+        transitions_seen = []
 
-        def state_callback(value=None, **kwargs):
-            states_seen.append(value)
+        def state_callback(value=None, old_value=None, **kwargs):
+            if value != old_value:
+                transitions_seen.append((old_value, value))
 
         # Subscribe to state changes
         device.state.subscribe(state_callback, run=True)
@@ -121,8 +122,8 @@ class TestAcquisitionStates:
             wait_for_state(device, "STANDBY", timeout=10.0)
 
             # Verify we saw the expected state transitions
-            assert states_seen == ["STANDBY", "RUNNING", "STANDBY"], (
-                "Should have seen STANDBY, RUNNING, STANDBY states"
+            assert transitions_seen == [("STANDBY", "RUNNING"), ("RUNNING", "STANDBY")], (
+                "Should have seen STANDBY, RUNNING, STANDBY transitions"
             )
 
         finally:
@@ -134,9 +135,10 @@ class TestAcquisitionStates:
 
         device.num_scans.set(5).wait(5.0)
 
-        act_scans_seen = []
-        def act_scans_callback(value=None, **kwargs):
-            act_scans_seen.append(value)
+        act_scans_transitions = []
+        def act_scans_callback(value=None, old_value=None, **kwargs):
+            if value != old_value:
+                act_scans_transitions.append((old_value, value))
 
         device.act_scans.subscribe(
             act_scans_callback,
@@ -149,8 +151,8 @@ class TestAcquisitionStates:
             wait_for_state(device, "RUNNING", timeout=10.0)
             wait_for_state(device, "STANDBY", timeout=60.0)
 
-            assert act_scans_seen == [1, 2, 3, 4, 5], (
-                "Act scans should be 1, 2, 3, 4, 5"
+            assert act_scans_transitions == [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)], (
+                "Act scans should be (0, 1), (1, 2), (2, 3), (3, 4), (4, 5)"
             )
 
         finally:

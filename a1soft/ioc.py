@@ -1366,12 +1366,13 @@ class DetectorIOC(PVGroup):
                             logger.info(
                                 f"Committing frame {self.num_captured.value} to file"
                             )
-
-                    await async_lib.library.gather(
-                        self.num_processed.write(act_scans_value),
-                        self.act_scans.write(act_scans_value),
-                    )
-
+                    if self.act_scans.value != act_scans_value:
+                        await async_lib.library.gather(
+                            self.num_processed.write(act_scans_value),
+                            self.act_scans.write(act_scans_value),
+                        )
+                    else:
+                        await self.num_processed.write(act_scans_value)
             else:
                 logger.error(f"Failed to get actual number of scans, got: {response}")
 
@@ -1383,7 +1384,8 @@ class DetectorIOC(PVGroup):
         )
         if response and "values" in response:
             value = response["values"][0]["value"]
-            await self.state.write(value)
+            if value != instance.value:
+                await self.state.write(value)
         else:
             logger.error(f"Failed to get state update, got: {response}")
 
