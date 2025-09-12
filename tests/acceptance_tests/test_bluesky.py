@@ -67,7 +67,6 @@ class TestDeviceWithBluesky:
         # Configure device
         device.file_path.set(str(test_output_dir)).wait(5.0)
         device.file_name.set("test_staging.nxs").wait(5.0)
-        device._count_threshold.set(5000).wait(5.0)
 
         # Initially unstaged
         assert device._staged == Staged.no, "Should start unstaged"
