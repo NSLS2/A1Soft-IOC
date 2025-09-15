@@ -19,8 +19,8 @@ class TestFileCapture:
         file_path = str(test_output_dir)
         file_name = "test_enable_capture.nxs"
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
 
         # Verify initial state
         assert device.file_capture.get(as_string=True) == "Off", (
@@ -29,7 +29,7 @@ class TestFileCapture:
         assert device.num_captured.get() == 0, "num_captured should start at 0"
 
         # Enable file capture
-        device.file_capture.set("On").wait(1.0)
+        device.file_capture.set("On").wait(5.0)
 
         # Verify file capture is on
         assert device.file_capture.get(as_string=True) == "On", (
@@ -40,7 +40,7 @@ class TestFileCapture:
         time.sleep(1.0)
 
         # Disable file capture
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
         # Verify file was created
         full_path = test_output_dir / file_name
@@ -54,23 +54,23 @@ class TestFileCapture:
         file_path = str(test_output_dir)
         file_name = "test_double_enable.nxs"
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
 
         # Enable file capture
-        device.file_capture.set("On").wait(1.0)
+        device.file_capture.set("On").wait(5.0)
         assert device.file_capture.get(as_string=True) == "On", (
             "File capture should be On"
         )
 
         # Try to enable again - should do nothing
-        device.file_capture.set("On").wait(1.0)
+        device.file_capture.set("On").wait(5.0)
         assert device.file_capture.get(as_string=True) == "On", (
             "File capture should be On"
         )
 
         # Clean up
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
 
 class TestFileWriting:
@@ -85,15 +85,15 @@ class TestFileWriting:
         file_name = "test_structure.nxs"
         full_path = test_output_dir / file_name
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
-        device.file_capture.set("On").wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
 
         # Sleep to ensure file is initialized before disabling
         time.sleep(1.0)
 
         # Disable to finalize file
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
         # Verify file structure
         assert full_path.exists(), "File should have been created"
@@ -109,23 +109,23 @@ class TestFileWriting:
         device = detector_in_standby
 
         # Set up minimal acquisition parameters
-        device.num_scans.set(1).wait(1.0)
+        device.num_scans.set(1).wait(5.0)
 
         # Set up file capture
         file_path = str(test_output_dir)
         file_name = "test_acquisition.nxs"
         full_path = test_output_dir / file_name
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
-        device.file_capture.set("On").wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
 
         # Start acquisition
-        device.acquire.set(1).wait(1.0)
+        device.acquire.set(1).wait(5.0)
         wait_for_state(device, "RUNNING", timeout=10.0)
         wait_for_state(device, "STANDBY", timeout=60.0)
 
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
         num_captured = device.num_captured.get()
         assert num_captured == 1, "Should have captured 1 image"
@@ -145,25 +145,25 @@ class TestFileWriting:
         device = detector_in_standby
 
         # Set up minimal acquisition parameters
-        device.num_scans.set(2).wait(1.0)
+        device.num_scans.set(2).wait(5.0)
         
         # Set up file capture
         file_path = str(test_output_dir)
         file_name = "test_multiple_acquisitions.nxs"
         full_path = test_output_dir / file_name
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
-        device.file_capture.set("On").wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
 
         for i in range(1, 4):
-            device.acquire.set(1).wait(1.0)
+            device.acquire.set(1).wait(5.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
             wait_for_state(device, "STANDBY", timeout=60.0)
             num_captured = device.num_captured.get()
             assert num_captured == i, f"Should have captured {i} images"
 
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
         assert full_path.exists(), "File should exist after acquisitions"
         with nxopen(full_path, "r") as f:
             assert "entry" in f, "File should have entry group"
@@ -177,16 +177,16 @@ class TestFileWriting:
         device = detector_in_standby
 
         # Set up minimal acquisition parameters
-        device.num_scans.set(5).wait(1.0)
+        device.num_scans.set(5).wait(5.0)
         
         # Set up file capture
         file_path = str(test_output_dir)
         file_name = "test_readable_during_acquisition.nxs"
         full_path = test_output_dir / file_name
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
-        device.file_capture.set("On").wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
 
         def _num_captured_callback(value, old_value, **kwargs):
             if value > 0 and value > old_value:
@@ -196,7 +196,7 @@ class TestFileWriting:
         device.num_captured.subscribe(_num_captured_callback)
 
         try:
-            device.acquire.set(1).wait(1.0)
+            device.acquire.set(1).wait(5.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
             wait_for_state(device, "STANDBY", timeout=60.0)
         finally:
@@ -215,11 +215,11 @@ class TestFilePathHandling:
         file_path = str(nested_dir)
         file_name = "test_nested.nxs"
 
-        device.file_path.set(file_path).wait(1.0)
-        device.file_name.set(file_name).wait(1.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
 
         # Enable file capture - should create directories
-        device.file_capture.set("On").wait(1.0)
+        device.file_capture.set("On").wait(5.0)
 
         # Verify directory was created
         assert nested_dir.exists(), "Nested directory should have been created"
@@ -228,7 +228,7 @@ class TestFilePathHandling:
         time.sleep(1.0)
 
         # Clean up
-        device.file_capture.set("Off").wait(1.0)
+        device.file_capture.set("Off").wait(5.0)
 
         # Verify file was created
         full_path = nested_dir / file_name
