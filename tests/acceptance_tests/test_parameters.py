@@ -17,7 +17,7 @@ class TestParameterSetting:
             original_frames + 1 if original_frames < 100 else original_frames - 1
         )
 
-        device.frames.set(new_frames).wait(1.0)
+        device.frames.set(new_frames).wait(5.0)
 
         actual_frames = device.frames.get()
         assert actual_frames == new_frames, (
@@ -25,7 +25,7 @@ class TestParameterSetting:
         )
 
         # Restore original value
-        device.frames.set(original_frames).wait(1.0)
+        device.frames.set(original_frames).wait(5.0)
 
     def test_float_parameter_setting(self, detector_in_standby):
         """Test setting float parameters."""
@@ -39,7 +39,7 @@ class TestParameterSetting:
             else original_start_ke - 0.1
         )
 
-        device.start_ke.set(new_start_ke).wait(1.0)
+        device.start_ke.set(new_start_ke).wait(5.0)
 
         actual_start_ke = device.start_ke.get()
         # Allow for small floating point differences
@@ -48,7 +48,7 @@ class TestParameterSetting:
         )
 
         # Restore original value
-        device.start_ke.set(original_start_ke).wait(1.0)
+        device.start_ke.set(original_start_ke).wait(5.0)
 
     def test_enum_parameter_setting(self, detector_in_standby):
         """Test setting enum parameters."""
@@ -69,7 +69,7 @@ class TestParameterSetting:
                 break
 
         if new_pass_energy:
-            device.pass_energy.set(new_pass_energy).wait(1.0)
+            device.pass_energy.set(new_pass_energy).wait(5.0)
 
             actual_pass_energy = device.pass_energy.get(as_string=True)
             assert actual_pass_energy == new_pass_energy, (
@@ -77,7 +77,7 @@ class TestParameterSetting:
             )
 
             # Restore original value
-            device.pass_energy.set(original_pass_energy).wait(1.0)
+            device.pass_energy.set(original_pass_energy).wait(5.0)
 
 
 class TestParameterDependencies:

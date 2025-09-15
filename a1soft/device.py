@@ -30,7 +30,6 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     file_capture = Cpt(EpicsSignal, "FILE:CAPTURE")
     file_name = Cpt(EpicsSignal, "FILE:NAME", string=True)
     file_path = Cpt(EpicsSignal, "FILE:PATH", string=True)
-    file_status = Cpt(EpicsSignalRO, "FILE:STATUS")
     num_captured = Cpt(EpicsSignalRO, "FILE:NUM_CAPTURED")
     num_processed = Cpt(EpicsSignalRO, "FILE:NUM_PROCESSED")
 
@@ -150,7 +149,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
             )
 
         self._status = Status()
-        self.acquire.set(1).wait(1.0)
+        self.acquire.set(1).wait(5.0)
         return self._status
 
     def describe(self) -> dict[str, DataKey]:
