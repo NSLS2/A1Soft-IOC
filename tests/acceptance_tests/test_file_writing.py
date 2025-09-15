@@ -138,7 +138,9 @@ class TestFileWriting:
             assert "instrument" in f["entry"], "Should have instrument group"
             assert "analyzer" in f["entry/instrument"], "Should have analyzer group"
             assert "data" in f["entry/instrument/analyzer"], "Should have data group"
-            assert f["entry/instrument/analyzer/data"].shape[0] == 1, "Should have 1 image"
+            assert f["entry/instrument/analyzer/data"].shape[0] == 1, (
+                "Should have 1 image"
+            )
 
     def test_multiple_acquisitions(self, detector_in_standby, test_output_dir):
         """Test multiple acquisitions with file capture enabled."""
@@ -146,7 +148,7 @@ class TestFileWriting:
 
         # Set up minimal acquisition parameters
         device.num_scans.set(2).wait(5.0)
-        
+
         # Set up file capture
         file_path = str(test_output_dir)
         file_name = "test_multiple_acquisitions.nxs"
@@ -170,15 +172,19 @@ class TestFileWriting:
             assert "instrument" in f["entry"], "Should have instrument group"
             assert "analyzer" in f["entry/instrument"], "Should have analyzer group"
             assert "data" in f["entry/instrument/analyzer"], "Should have data group"
-            assert f["entry/instrument/analyzer/data"].shape[0] == 3, "Should have 3 images"
+            assert f["entry/instrument/analyzer/data"].shape[0] == 3, (
+                "Should have 3 images"
+            )
 
-    def test_file_is_readable_during_acquisition(self, detector_in_standby, test_output_dir):
+    def test_file_is_readable_during_acquisition(
+        self, detector_in_standby, test_output_dir
+    ):
         """Test that file is readable during acquisition and contains intermediate images."""
         device = detector_in_standby
 
         # Set up minimal acquisition parameters
         device.num_scans.set(2).wait(5.0)
-        
+
         # Set up file capture
         file_path = str(test_output_dir)
         file_name = "test_readable_during_acquisition.nxs"
@@ -189,6 +195,7 @@ class TestFileWriting:
         device.file_capture.set("On").wait(5.0)
 
         shape_tracker = []
+
         def _num_captured_callback(value, old_value, **kwargs):
             if value > 0 and value > old_value:
                 with nxopen(full_path, "r") as f:
@@ -232,8 +239,12 @@ class TestFileWriting:
             assert "entry" in f, "File should have entry group"
             assert "instrument" in f["entry"], "Should have instrument group"
             assert "analyzer" in f["entry/instrument"], "Should have analyzer group"
-            assert "angles" in f["entry/instrument/analyzer"], "Should have angles group"
-            assert "energies" in f["entry/instrument/analyzer"], "Should have energies group"
+            assert "angles" in f["entry/instrument/analyzer"], (
+                "Should have angles group"
+            )
+            assert "energies" in f["entry/instrument/analyzer"], (
+                "Should have energies group"
+            )
 
 
 class TestFilePathHandling:

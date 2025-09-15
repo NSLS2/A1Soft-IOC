@@ -646,6 +646,7 @@ class DetectorTCPClient:
 
 class DetectorWriter:
     """Writer for detector data."""
+
     def __init__(self) -> None:
         self._image_queue: asyncio.Queue | None = None
         self._full_file_path: Path | None = None
@@ -693,7 +694,7 @@ class DetectorWriter:
 
         with nxopen(self._full_file_path, "w", libver="latest") as file_handle:
             self._create_structure(file_handle)
-        
+
         first_pass = True
         while True:
             try:
@@ -780,14 +781,14 @@ class DetectorWriter:
 
         with nxopen(self._full_file_path, "a", libver="latest") as file_handle:
             # Add the final data field to the file
-            if "entry" not in file_handle or \
-                "instrument" not in file_handle.entry or \
-                "analyzer" not in file_handle.entry.instrument:
+            if (
+                "entry" not in file_handle
+                or "instrument" not in file_handle.entry
+                or "analyzer" not in file_handle.entry.instrument
+            ):
                 logger.warning("File was never initialized, skipping linking")
                 return
-            deflector_x_exists = (
-                "deflector_x" in file_handle.entry.instrument.analyzer
-            )
+            deflector_x_exists = "deflector_x" in file_handle.entry.instrument.analyzer
             angles_exists = "angles" in file_handle.entry.instrument.analyzer
             energies_exists = "energies" in file_handle.entry.instrument.analyzer
             data_exists = "data" in file_handle.entry.instrument.analyzer
@@ -837,9 +838,9 @@ class DetectorIOC(PVGroup):
 
     async def _param_write(self, instance: PvpropertyData, value: Any) -> Any:
         """Set a detector parameter and return the value that was actually set."""
-        if (
-            isinstance(value, float) and np.isclose(instance.value, value)
-        ) or (not isinstance(value, float) and instance.value == value):
+        if (isinstance(value, float) and np.isclose(instance.value, value)) or (
+            not isinstance(value, float) and instance.value == value
+        ):
             return instance.value
         param_name = self._pvs_to_param_names[instance]
         response = await self.tcp_client.set_parameter(param_name, value)
@@ -1143,13 +1144,23 @@ class DetectorIOC(PVGroup):
     def _write_metadata(self) -> None:
         self.writer.write_field(
             "entry/instrument/analyzer",
-            np.linspace(self.xscale_min.value, self.xscale_max.value, self.num_slice.value, endpoint=True),
+            np.linspace(
+                self.xscale_min.value,
+                self.xscale_max.value,
+                self.num_slice.value,
+                endpoint=True,
+            ),
             name="angles",
             units="deg",
         )
         self.writer.write_field(
             "entry/instrument/analyzer",
-            np.linspace(self.escale_min.value, self.escale_max.value, self.num_steps.value, endpoint=True),
+            np.linspace(
+                self.escale_min.value,
+                self.escale_max.value,
+                self.num_steps.value,
+                endpoint=True,
+            ),
             name="energies",
             units="eV",
         )
@@ -1184,10 +1195,14 @@ class DetectorIOC(PVGroup):
                         index = self.num_captured.value
                         if act_scans_value < self.num_scans.value:
                             try:
-                                data = await asyncio.wait_for(self._get_current_frame(), timeout=0.1)
+                                data = await asyncio.wait_for(
+                                    self._get_current_frame(), timeout=0.1
+                                )
                                 await self.writer.write_image(index, data)
                             except asyncio.TimeoutError:
-                                logger.warning("Failed to get current frame in 100ms, skipping current frame")
+                                logger.warning(
+                                    "Failed to get current frame in 100ms, skipping current frame"
+                                )
                         else:
                             data = await self._get_current_frame()
                             await self.writer.write_image(index, data)
