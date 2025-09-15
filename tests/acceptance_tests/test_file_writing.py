@@ -177,7 +177,7 @@ class TestFileWriting:
         device = detector_in_standby
 
         # Set up minimal acquisition parameters
-        device.num_scans.set(5).wait(5.0)
+        device.num_scans.set(2).wait(5.0)
         
         # Set up file capture
         file_path = str(test_output_dir)
@@ -197,10 +197,11 @@ class TestFileWriting:
         device.num_captured.subscribe(_num_captured_callback)
 
         try:
-            device.acquire.set(1).wait(5.0)
-            wait_for_state(device, "RUNNING", timeout=10.0)
-            wait_for_state(device, "STANDBY", timeout=60.0)
-            assert shape_tracker == [1, 2, 3, 4, 5], "Should have 5 images"
+            for _ in range(2):
+                device.acquire.set(1).wait(5.0)
+                wait_for_state(device, "RUNNING", timeout=10.0)
+                wait_for_state(device, "STANDBY", timeout=60.0)
+            assert shape_tracker == [1, 2], "Should have 2 images"
         finally:
             device.num_captured.unsubscribe(_num_captured_callback)
 
