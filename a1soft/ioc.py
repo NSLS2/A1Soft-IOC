@@ -644,6 +644,187 @@ class DetectorTCPClient:
         return await self.send_command("SET", parameter=param_name, value=value)
 
 
+class DetectorWriter:
+    """Writer for detector data."""
+    def __init__(self) -> None:
+        self._image_queue: asyncio.Queue | None = None
+        self._full_file_path: Path | None = None
+        self._image_writer_task: asyncio.Task | None = None
+
+    async def write_image(self, index: int, data: dict[str, Any]) -> None:
+        """Queue an image for writing."""
+        if self._image_queue is None:
+            raise RuntimeError("Image queue not set")
+        if data:
+            try:
+                # Put data in queue without blocking (will raise QueueFull if full)
+                self._image_queue.put_nowait((index, data))
+            except asyncio.QueueFull:
+                logger.warning(
+                    f"Image queue is full ({self._image_queue.qsize()} items), dropping frame"
+                )
+        else:
+            logger.error("Failed to get current frame for file writing")
+
+    def write_field(self, path: str, array: np.ndarray, name: str, units: str) -> None:
+        """Write an array to the file."""
+        if self._full_file_path is None:
+            raise RuntimeError("File path not set")
+        with nxopen(self._full_file_path, "w") as file_handle:
+            group = file_handle[path]
+            group[name] = NXfield(
+                array,
+                name=name,
+                units=units,
+            )
+
+    def _create_structure(self, root: NXroot) -> None:
+        if "entry" not in root:
+            root.entry = NXentry(name="entry")
+        if "instrument" not in root.entry:
+            root.entry.instrument = NXinstrument(name="instrument")
+        if "analyzer" not in root.entry.instrument:
+            root.entry.instrument.analyzer = NXdetector(name="analyzer")
+
+    async def _image_writer(self) -> None:
+        """Background task that continuously writes image data from queue to file."""
+        if self._full_file_path is None:
+            raise RuntimeError("File path not set")
+
+        with nxopen(self._full_file_path, "w") as file_handle:
+            self._create_structure(file_handle)
+        
+        first_pass = True
+        while True:
+            try:
+                # Wait for data from the queue
+                item = await self._image_queue.get()
+
+                # Check for shutdown signal (None is used as sentinel)
+                if item is None:
+                    break
+
+                with nxopen(self._full_file_path, "w") as file_handle:
+                    entry = file_handle.entry
+                    detector = entry.instrument.analyzer
+                    index, data = item
+                    if first_pass:
+                        data_field = NXfield(
+                            name="data",
+                            shape=(0, data["cur_height"], data["cur_width"]),
+                            dtype=np.uint32,
+                            maxshape=(None, data["cur_height"], data["cur_width"]),
+                        )
+                        detector["data"] = data_field
+                        deflx_field = NXfield(
+                            name="deflector_x",
+                            shape=(0,),
+                            dtype=np.float64,
+                            maxshape=(None,),
+                        )
+                        detector["deflector_x"] = deflx_field
+                        first_pass = False
+
+                    # We continually overwrite the last frame in the data field in-case of
+                    # an error during acquisition.
+                    # The index value is incremented when acquisition state transitions to STANDBY
+                    # This way, the last frame of each acquisition is saved (which is the cumulative sum
+                    # of all the "act_scans" in the acquisition).
+                    size = index + 1
+                    if data_field.shape[0] < size:
+                        data_field.resize(size, axis=0)
+                    if deflx_field.shape[0] < size:
+                        deflx_field.resize(size, axis=0)
+
+                    data_field[index, :, :] = data["channel_2_data"]
+                    deflx_field[index] = data["deflX"]
+                    logger.info(f"Writing frame {size} to file")
+                    # Update the file immediately to avoid losing data
+                    file_handle.nxfile.file.flush()
+
+                # Mark the task as done
+                self._image_queue.task_done()
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in background file writer: {e}")
+                # Mark the task as done even on error
+                self._image_queue.task_done()
+
+    async def open(self, path: str, name: str) -> None:
+        """Initialize file for writing."""
+        if not path:
+            msg = f"File path not set, got: {path}"
+            logger.error(msg)
+            raise RuntimeError(msg)
+        if not name or not name.endswith(".nxs"):
+            msg = f"File name must be set and end with .nxs, got: {name}"
+            logger.error(msg)
+            raise RuntimeError(msg)
+        path = Path(path)
+        if not path.exists():
+            path.mkdir(parents=True, exist_ok=True)
+
+        self._full_file_path = path / name
+        self._image_queue = asyncio.Queue(maxsize=100)
+
+        # Start background file writer task
+        self._image_writer_task = asyncio.create_task(self._image_writer())
+
+    def _link_results(self) -> None:
+        if self._full_file_path is None:
+            raise RuntimeError("File path not set")
+
+        with nxopen(self._full_file_path, "w", libver="latest") as file_handle:
+            # Add the final data field to the file
+            deflector_x_exists = (
+                "deflector_x" in file_handle.entry.instrument.analyzer
+            )
+            angles_exists = "angles" in file_handle.entry.instrument.analyzer
+            energies_exists = "energies" in file_handle.entry.instrument.analyzer
+            data_exists = "data" in file_handle.entry.instrument.analyzer
+            if deflector_x_exists:
+                dfl = NXlink(file_handle.entry.instrument.analyzer.deflector_x)
+            if angles_exists:
+                an = NXlink(file_handle.entry.instrument.analyzer.angles)
+            if energies_exists:
+                en = NXlink(file_handle.entry.instrument.analyzer.energies)
+            if data_exists:
+                counts = NXlink(file_handle.entry.instrument.analyzer.data)
+            if all((deflector_x_exists, angles_exists, energies_exists, data_exists)):
+                file_handle.entry.data = NXdata(
+                    counts,
+                    [dfl, an, en],
+                )
+
+    async def close(self) -> None:
+        # Stop background writer task
+        if self._image_writer_task:
+            # Send shutdown signal to background writer
+            await self._image_queue.put(None)
+            # Wait for the writer task to finish
+            try:
+                await asyncio.wait_for(self._image_writer_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("File writer task did not shutdown cleanly")
+                self._image_writer_task.cancel()
+            self._image_writer_task = None
+        # Finalize the file
+        self._link_results()
+        # Clear any remaining items in queue
+        while not self._image_queue.empty():
+            try:
+                self._image_queue.get_nowait()
+                self._image_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+
+        self._full_file_path = None
+        self._image_queue = None
+        self._image_writer_task = None
+
+
 class DetectorIOC(PVGroup):
     """EPICS IOC for detector control via TCP interface."""
 
@@ -849,14 +1030,12 @@ class DetectorIOC(PVGroup):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.tcp_client: DetectorTCPClient = DetectorTCPClient()
-        self._sync_task: asyncio.Task | None = None
-        self._update_listener_task: asyncio.Task | None = None
-        self._file_writer_task: asyncio.Task | None = None
-        self._image_queue: asyncio.Queue = asyncio.Queue(
-            maxsize=100
-        )  # Buffer up to 100 images
+        self.writer: DetectorWriter = DetectorWriter()
         self._state_lock = asyncio.Lock()
         self._acquire_lock = asyncio.Lock()
+        self._file_capture_lock = asyncio.Lock()
+
+        # Convenience mappings for parameter names to PVs and vice versa
         self._pvs_to_param_names: dict[PvpropertyData, str] = {
             self.state: "state",
             self.endX: "endX",
@@ -917,8 +1096,6 @@ class DetectorIOC(PVGroup):
             self.over_range: "OverRange",
         }
         self._param_names_to_pvs = {v: k for k, v in self._pvs_to_param_names.items()}
-        self._full_file_path: Path | None = None
-        self._file_handle: NXroot | None = None
 
     async def _get_current_frame(self) -> dict[str, Any] | None:
         _, response = await asyncio.gather(
@@ -938,143 +1115,6 @@ class DetectorIOC(PVGroup):
             logger.warning("Failed to read image data")
         return None
 
-    def _write_metadata_to_file(self) -> None:
-        """Write metadata to file that is not changed during the run."""
-        if self._file_handle is None:
-            raise RuntimeError("File handle not initialized")
-
-        analyzer = self._file_handle.entry.instrument.analyzer
-
-        analyzer.angles = NXfield(
-            np.linspace(
-                self.xscale_min.value,
-                self.xscale_max.value,
-                self.num_slice.value,
-                endpoint=True,
-            ),
-            name="angles",
-            units="deg",
-        )
-        analyzer.energies = NXfield(
-            np.linspace(
-                self.escale_min.value,
-                self.escale_max.value,
-                self.num_steps.value,
-                endpoint=True,
-            ),
-            name="energies",
-            units="eV",
-        )
-
-    async def _background_file_writer(self) -> None:
-        """Background task that continuously writes image data from queue to file."""
-        if self._file_handle is None:
-            raise RuntimeError("File handle not initialized")
-
-        entry = self._file_handle.entry
-        detector = entry.instrument.analyzer
-
-        if "data" in detector:
-            data_field = detector["data"]
-        else:
-            data_field = None
-
-        if "deflector_x" in detector:
-            deflx_field = detector["deflector_x"]
-        else:
-            deflx_field = None
-
-        first_pass = True
-
-        while True:
-            try:
-                # Wait for data from the queue
-                item = await self._image_queue.get()
-
-                # Check for shutdown signal (None is used as sentinel)
-                if item is None:
-                    break
-
-                index, data = item
-                if data_field is None:
-                    data_field = NXfield(
-                        name="data",
-                        shape=(0, data["cur_height"], data["cur_width"]),
-                        dtype=np.uint32,
-                        maxshape=(None, data["cur_height"], data["cur_width"]),
-                    )
-                    detector["data"] = data_field
-
-                if deflx_field is None:
-                    deflx_field = NXfield(
-                        name="deflector_x",
-                        shape=(0,),
-                        dtype=np.float64,
-                        maxshape=(None,),
-                    )
-                    detector["deflector_x"] = deflx_field
-
-                # On the first pass, capture the run metadata and write it to the file
-                # This is done only if the data field is empty
-                if first_pass:
-                    self._write_metadata_to_file()
-                    # Set SWMR mode to True after writing to file
-                    self._file_handle.nxfile.file.swmr_mode = True
-                    first_pass = False
-
-                # We continually overwrite the last frame in the data field in-case of
-                # an error during acquisition.
-                # The index value is incremented when acquisition state transitions to STANDBY
-                # This way, the last frame of each acquisition is saved (which is the cumulative sum
-                # of all the "act_scans" in the acquisition).
-                size = index + 1
-                if data_field.shape[0] < size:
-                    data_field.resize(size, axis=0)
-                if deflx_field.shape[0] < size:
-                    deflx_field.resize(size, axis=0)
-
-                data_field[index, :, :] = data["channel_2_data"]
-                deflx_field[index] = data["deflX"]
-                logger.info(f"Writing frame {size} to file")
-                # Update the file immediately to avoid losing data
-                self._file_handle.nxfile.file.flush()
-
-                # Mark the task as done
-                self._image_queue.task_done()
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error in background file writer: {e}")
-                # Mark the task as done even on error
-                self._image_queue.task_done()
-
-    async def _write_image_to_file(self) -> None:
-        """Request image and queue it for writing."""
-        index = self.num_captured.value
-        data = await self._get_current_frame()
-
-        if data:
-            try:
-                # Put data in queue without blocking (will raise QueueFull if full)
-                # The num_captured value is the index of the frame to be written to file
-                self._image_queue.put_nowait((index, data))
-
-            except asyncio.QueueFull:
-                logger.warning(
-                    f"Image queue is full ({self._image_queue.qsize()} items), dropping frame"
-                )
-        else:
-            logger.error("Failed to get current frame for file writing")
-
-    def _create_file_structure(self, root: NXroot) -> None:
-        if "entry" not in root:
-            root.entry = NXentry(name="entry")
-        if "instrument" not in root.entry:
-            root.entry.instrument = NXinstrument(name="instrument")
-        if "analyzer" not in root.entry.instrument:
-            root.entry.instrument.analyzer = NXdetector(name="analyzer")
-
     @file_capture.putter
     async def file_capture(
         self, instance: PvpropertyData, value: Literal["On", "Off"]
@@ -1085,96 +1125,20 @@ class DetectorIOC(PVGroup):
             logger.error(msg)
             raise RuntimeError(msg)
 
-        if value == "On":
-            file_path = self.file_path.value
-            if not file_path:
-                msg = f"File path not set, got: {file_path}"
-                logger.error(msg)
-                raise RuntimeError(msg)
-            filename = self.file_name.value
-            if not filename or not filename.endswith(".nxs"):
-                msg = f"File name must be set and end with .nxs, got: {filename}"
-                logger.error(msg)
-                raise RuntimeError(msg)
-
-            path = Path(file_path)
-            if not path.exists():
-                path.mkdir(parents=True, exist_ok=True)
-
-            self._full_file_path = path / filename
-
-            # Create fresh queue for this capture session
-            self._image_queue = asyncio.Queue(maxsize=100)
-            self._file_handle = nxopen(self._full_file_path, "a", libver="latest")
-            self._create_file_structure(self._file_handle)
-            if "data" in self._file_handle.entry.instrument.analyzer:
-                size = self._file_handle.entry.instrument.analyzer["data"].shape[0]
-                logger.warning(f"Appending to existing file with {size} frames")
-                await self.num_captured.write(size)
-            else:
+        async with self._file_capture_lock:
+            if value == "On":
+                file_path = self.file_path.value
+                filename = self.file_name.value
+                await self.writer.open(file_path, filename)
                 await self.num_captured.write(0)
-
-            # Start background file writer task
-            self._file_writer_task = asyncio.create_task(self._background_file_writer())
-
-            await self.file_status.write(
-                f"File capture started, writing to {self._full_file_path}"
-            )
-        else:
-            # Stop background writer task
-            if self._file_writer_task:
-                # Send shutdown signal to background writer
-                await self._image_queue.put(None)
-                # Wait for the writer task to finish
-                try:
-                    await asyncio.wait_for(self._file_writer_task, timeout=5.0)
-                except asyncio.TimeoutError:
-                    logger.warning("File writer task did not shutdown cleanly")
-                    self._file_writer_task.cancel()
-                self._file_writer_task = None
-
-            # Add the final data field to the file
-            deflector_x_exists = (
-                "deflector_x" in self._file_handle.entry.instrument.analyzer
-            )
-            angles_exists = "angles" in self._file_handle.entry.instrument.analyzer
-            energies_exists = "energies" in self._file_handle.entry.instrument.analyzer
-            data_exists = "data" in self._file_handle.entry.instrument.analyzer
-            if deflector_x_exists:
-                dfl = NXlink(self._file_handle.entry.instrument.analyzer.deflector_x)
-            if angles_exists:
-                an = NXlink(self._file_handle.entry.instrument.analyzer.angles)
-            if energies_exists:
-                en = NXlink(self._file_handle.entry.instrument.analyzer.energies)
-            if data_exists:
-                counts = NXlink(self._file_handle.entry.instrument.analyzer.data)
-            if all((deflector_x_exists, angles_exists, energies_exists, data_exists)):
-                self._file_handle.entry.data = NXdata(
-                    counts,
-                    [dfl, an, en],
-                )
-
-            self._full_file_path = None
-            self._file_handle.close()
-            self._file_handle = None
-
-            # Clear any remaining items in queue
-            while not self._image_queue.empty():
-                try:
-                    self._image_queue.get_nowait()
-                    self._image_queue.task_done()
-                except asyncio.QueueEmpty:
-                    break
-
-            await self.file_status.write(
-                f"File capture stopped, wrote to {self._full_file_path}"
-            )
+            else:
+                await self.writer.close()
         return value
 
     @act_scans.scan(period=0.05)
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for acutal number of scans completed."""
-        if self.acquisition_status.value == 1 and self.file_capture.value == "On":
+        if self.acquisition_status.value == 1:
             num_processed = self.num_processed.value
 
             # Get actScans parameter
@@ -1186,18 +1150,28 @@ class DetectorIOC(PVGroup):
                 act_scans_value = response["values"][0]["value"]
 
                 if act_scans_value > num_processed:
-                    logger.info(
-                        f"New scan detected: {act_scans_value} (was {num_processed})"
-                    )
                     if act_scans_value > num_processed + 1:
-                        logger.warning(
-                            f"FRAME SKIPPED: {act_scans_value} (was {num_processed})"
+                        logger.critical(
+                            f"FRAME SKIP: seen only {num_processed} so far but expected {act_scans_value}"
                         )
 
-                    await self._write_image_to_file()
+                    if self.file_capture.value == "On":
+                        # We only care about committing the final frame of each acquisition to the file since
+                        # it contains the cumulative sum of the frames in one acquisition.
+                        # But intermediate frames are still useful in-case of an error during acquisition.
+                        # Therefore, we try to get the intermediate frame with a timeout.
+                        if act_scans_value < self.num_scans.value:
+                            try:
+                                data = await asyncio.wait_for(self._get_current_frame(), timeout=0.1)
+                                await self.writer.write_image(num_processed + 1, data)
+                            except asyncio.TimeoutError:
+                                logger.warning("Failed to get current frame in 100ms, skipping current frame")
+                        else:
+                            data = await self._get_current_frame()
+                            await self.writer.write_image(num_processed + 1, data)
 
                     await async_lib.library.gather(
-                        self.num_processed.write(act_scans_value),
+                        self.num_processed.write(self.num_processed.value + 1),
                         self.act_scans.write(act_scans_value),
                     )
 
@@ -1382,25 +1356,10 @@ class DetectorIOC(PVGroup):
     async def cleanup(self) -> None:
         """Clean up background tasks and connections."""
         logger.info("Starting IOC cleanup...")
-
-        if self._sync_task:
-            self._sync_task.cancel()
-        if self._update_listener_task:
-            self._update_listener_task.cancel()
-        if self._file_writer_task:
-            # Send shutdown signal and wait for graceful shutdown
-            try:
-                await self._image_queue.put(None)
-                await asyncio.wait_for(self._file_writer_task, timeout=5.0)
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "File writer task did not shutdown cleanly during cleanup"
-                )
-                self._file_writer_task.cancel()
-            except Exception as e:
-                logger.error(f"Error during file writer cleanup: {e}")
-                self._file_writer_task.cancel()
-
+        # Close the file writer if it is open
+        async with self._file_capture_lock:
+            if self.file_capture.value == "On":
+                await self.writer.close()
         # Disconnect TCP client (this will handle auto-reconnect cleanup)
         await self.tcp_client.disconnect()
         logger.info("Cleanup completed")
