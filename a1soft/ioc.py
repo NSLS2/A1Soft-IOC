@@ -670,7 +670,7 @@ class DetectorWriter:
         """Write an array to the file."""
         if self._full_file_path is None:
             raise RuntimeError("File path not set")
-        with nxopen(self._full_file_path, "w", libver="latest") as file_handle:
+        with nxopen(self._full_file_path, "a", libver="latest") as file_handle:
             group = file_handle[path]
             group[name] = NXfield(
                 array,
@@ -704,7 +704,7 @@ class DetectorWriter:
                 if item is None:
                     break
 
-                with nxopen(self._full_file_path, "w", libver="latest") as file_handle:
+                with nxopen(self._full_file_path, "a", libver="latest") as file_handle:
                     entry = file_handle.entry
                     detector = entry.instrument.analyzer
                     index, data = item
@@ -767,6 +767,8 @@ class DetectorWriter:
             path.mkdir(parents=True, exist_ok=True)
 
         self._full_file_path = path / name
+        if self._full_file_path.exists():
+            logger.warning(f"File already exists, overwriting: {self._full_file_path}")
         self._image_queue = asyncio.Queue(maxsize=100)
 
         # Start background file writer task
@@ -776,7 +778,7 @@ class DetectorWriter:
         if self._full_file_path is None:
             raise RuntimeError("File path not set")
 
-        with nxopen(self._full_file_path, "w", libver="latest") as file_handle:
+        with nxopen(self._full_file_path, "a", libver="latest") as file_handle:
             # Add the final data field to the file
             if "entry" not in file_handle or \
                 "instrument" not in file_handle.entry or \
@@ -1138,6 +1140,22 @@ class DetectorIOC(PVGroup):
                 await self.writer.close()
         return value
 
+    async def _write_metadata(self) -> None:
+        await asyncio.gather(
+            self.writer.write_field(
+                "entry/instrument/analyzer/angles",
+                np.linspace(self.xscale_min.value, self.xscale_max.value, self.num_slice.value, endpoint=True),
+                name="angles",
+                units="deg",
+            ),
+            self.writer.write_field(
+                "entry/instrument/analyzer/energies",
+                np.linspace(self.escale_min.value, self.escale_max.value, self.num_steps.value, endpoint=True),
+                name="energies",
+                units="eV",
+            ),
+        )
+
     @act_scans.scan(period=0.05)
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for acutal number of scans completed."""
@@ -1175,6 +1193,9 @@ class DetectorIOC(PVGroup):
                         else:
                             data = await self._get_current_frame()
                             await self.writer.write_image(index, data)
+                            # Capture metadata for the first frame
+                            if index == 1:
+                                await self._write_metadata()
                             await self.num_captured.write(index)
                             logger.info(
                                 f"Committing frame {index} to file"

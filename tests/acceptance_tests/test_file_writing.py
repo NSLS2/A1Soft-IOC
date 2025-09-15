@@ -202,6 +202,35 @@ class TestFileWriting:
         finally:
             device.num_captured.unsubscribe(_num_captured_callback)
 
+    def test_file_contains_metadata(self, detector_in_standby, test_output_dir):
+        """Test that file contains metadata."""
+        device = detector_in_standby
+
+        # Set up minimal acquisition parameters
+        device.num_scans.set(1).wait(5.0)
+
+        # Set up file capture
+        file_path = str(test_output_dir)
+        file_name = "test_contains_metadata.nxs"
+        full_path = test_output_dir / file_name
+
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
+
+        device.acquire.set(1).wait(5.0)
+        wait_for_state(device, "RUNNING", timeout=10.0)
+        wait_for_state(device, "STANDBY", timeout=60.0)
+
+        device.file_capture.set("Off").wait(5.0)
+
+        with nxopen(full_path, "r") as f:
+            assert "entry" in f, "File should have entry group"
+            assert "instrument" in f["entry"], "Should have instrument group"
+            assert "analyzer" in f["entry/instrument"], "Should have analyzer group"
+            assert "angles" in f["entry/instrument/analyzer"], "Should have angles group"
+            assert "energies" in f["entry/instrument/analyzer"], "Should have energies group"
+
 
 class TestFilePathHandling:
     """Test file path and name handling."""
