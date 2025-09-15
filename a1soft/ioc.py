@@ -1193,7 +1193,7 @@ class DetectorIOC(PVGroup):
                             await self.writer.write_image(index, data)
                             # Capture metadata for the first frame
                             if index == 1:
-                                await self._write_metadata()
+                                self._write_metadata()
                             await self.num_captured.write(index)
                             logger.info(
                                 f"Committing frame {index} to file"
