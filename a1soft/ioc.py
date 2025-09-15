@@ -1143,13 +1143,13 @@ class DetectorIOC(PVGroup):
     async def _write_metadata(self) -> None:
         await asyncio.gather(
             self.writer.write_field(
-                "entry/instrument/analyzer/angles",
+                "entry/instrument/analyzer",
                 np.linspace(self.xscale_min.value, self.xscale_max.value, self.num_slice.value, endpoint=True),
                 name="angles",
                 units="deg",
             ),
             self.writer.write_field(
-                "entry/instrument/analyzer/energies",
+                "entry/instrument/analyzer",
                 np.linspace(self.escale_min.value, self.escale_max.value, self.num_steps.value, endpoint=True),
                 name="energies",
                 units="eV",
