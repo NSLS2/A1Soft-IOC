@@ -188,10 +188,11 @@ class TestFileWriting:
         device.file_name.set(file_name).wait(5.0)
         device.file_capture.set("On").wait(5.0)
 
+        shape_tracker = []
         def _num_captured_callback(value, old_value, **kwargs):
             if value > 0 and value > old_value:
                 with nxopen(full_path, "r") as f:
-                    assert f["entry/instrument/analyzer/data"].shape[0] == value, f"Should have {value} images"
+                    shape_tracker.append(f["entry/instrument/analyzer/data"].shape[0])
 
         device.num_captured.subscribe(_num_captured_callback)
 
@@ -199,6 +200,7 @@ class TestFileWriting:
             device.acquire.set(1).wait(5.0)
             wait_for_state(device, "RUNNING", timeout=10.0)
             wait_for_state(device, "STANDBY", timeout=60.0)
+            assert shape_tracker == [1, 2, 3, 4, 5], "Should have 5 images"
         finally:
             device.num_captured.unsubscribe(_num_captured_callback)
 
