@@ -830,6 +830,10 @@ class DetectorIOC(PVGroup):
 
     async def _param_write(self, instance: PvpropertyData, value: Any) -> Any:
         """Set a detector parameter and return the value that was actually set."""
+        if (
+            isinstance(value, float) and np.isclose(instance.value, value)
+        ) or (not isinstance(value, float) and instance.value == value):
+            return instance.value
         param_name = self._pvs_to_param_names[instance]
         response = await self.tcp_client.set_parameter(param_name, value)
         if not response:
@@ -849,10 +853,7 @@ class DetectorIOC(PVGroup):
         if (
             isinstance(actual_value, float) and not np.isclose(actual_value, value)
         ) or (not isinstance(actual_value, float) and actual_value != value):
-            logger.error(
-                f"Failed to set {param_name} to {value}, was set to {actual_value} instead."
-            )
-            raise ValueError(
+            logger.warning(
                 f"Failed to set {param_name} to {value}, was set to {actual_value} instead."
             )
         return actual_value
@@ -1215,9 +1216,8 @@ class DetectorIOC(PVGroup):
     ) -> Literal["STANDBY", "RUNNING", "MOVING"]:
         """Set the state of the detector."""
         async with self._state_lock:
-            if value == "STANDBY" and value != instance.value:
-                if self.acquire.value == 1:
-                    await self.acquire.write(0)
+            if value == "STANDBY" and self.acquire.value == 1:
+                await self.acquire.write(0)
             return value
 
     @connection_status.startup
