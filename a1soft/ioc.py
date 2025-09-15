@@ -892,17 +892,14 @@ class DetectorIOC(PVGroup):
         dtype=str,
         max_length=1024,
     )
-    file_status = pvproperty(
-        value="", name="FILE:STATUS", read_only=True, dtype=ChannelType.STRING
-    )
     num_captured = pvproperty(
         value=0, name="FILE:NUM_CAPTURED", read_only=True, dtype=int
     )
-    """Total number of images captured during capture session"""
+    """Number of images captured while file capture is on"""
     num_processed = pvproperty(
         value=0, name="FILE:NUM_PROCESSED", read_only=True, dtype=int
     )
-    """Number of images processed during a single acquisition"""
+    """To track the number of scans processed during a single acquisition"""
 
     # Status and info
     connection_status = pvproperty(value=0, name="SYS:CONNECTED", read_only=True)
@@ -1148,6 +1145,8 @@ class DetectorIOC(PVGroup):
 
             if response and "values" in response:
                 act_scans_value = response["values"][0]["value"]
+                if act_scans_value != self.act_scans.value:
+                    await self.act_scans.write(act_scans_value)
 
                 if act_scans_value > num_processed:
                     if act_scans_value > num_processed + 1:
@@ -1160,27 +1159,21 @@ class DetectorIOC(PVGroup):
                         # it contains the cumulative sum of the frames in one acquisition.
                         # But intermediate frames are still useful in-case of an error during acquisition.
                         # Therefore, we try to get the intermediate frame with a timeout.
+                        index = self.num_captured.value + 1
                         if act_scans_value < self.num_scans.value:
                             try:
                                 data = await asyncio.wait_for(self._get_current_frame(), timeout=0.1)
-                                await self.writer.write_image(num_processed + 1, data)
+                                await self.writer.write_image(index, data)
                             except asyncio.TimeoutError:
                                 logger.warning("Failed to get current frame in 100ms, skipping current frame")
                         else:
                             data = await self._get_current_frame()
-                            await self.writer.write_image(num_processed + 1, data)
-
-                    await async_lib.library.gather(
-                        self.num_processed.write(self.num_processed.value + 1),
-                        self.act_scans.write(act_scans_value),
-                    )
-
-                    # Increment num_captured when the last scan is completed
-                    if act_scans_value == self.num_scans.value:
-                        await self.num_captured.write(self.num_captured.value + 1)
-                        logger.info(
-                            f"Committing frame {self.num_captured.value} to file"
-                        )
+                            await self.writer.write_image(index, data)
+                            await self.num_captured.write(index)
+                            logger.info(
+                                f"Committing frame {index} to file"
+                            )
+                    await self.num_processed.write(self.num_processed.value + 1)
             else:
                 logger.error(f"Failed to get actual number of scans, got: {response}")
 
@@ -1302,8 +1295,7 @@ class DetectorIOC(PVGroup):
                 if response:
                     logger.info("Acquisition started")
                     await self.acquisition_status.write(1)
-                    if self.file_capture.value == "On":
-                        await self.num_processed.write(0)
+                    await self.num_processed.write(0)
                 else:
                     logger.error("Failed to start acquisition")
                     return 0
