@@ -26,7 +26,6 @@ class TestFileCapture:
         assert device.file_capture.get(as_string=True) == "Off", (
             "File capture should start as Off"
         )
-        assert device.num_captured.get() == 0, "num_captured should start at 0"
 
         # Enable file capture
         device.file_capture.set("On").wait(5.0)
@@ -35,6 +34,7 @@ class TestFileCapture:
         assert device.file_capture.get(as_string=True) == "On", (
             "File capture should be On"
         )
+        assert device.num_captured.get() == 0, "num_captured should start at 0"
 
         # Sleep to ensure file is initialized before disabling
         time.sleep(1.0)
@@ -201,6 +201,7 @@ class TestFileWriting:
                 device.acquire.set(1).wait(5.0)
                 wait_for_state(device, "RUNNING", timeout=10.0)
                 wait_for_state(device, "STANDBY", timeout=60.0)
+            device.file_capture.set("Off").wait(5.0)
             assert shape_tracker == [1, 2], "Should have 2 images"
         finally:
             device.num_captured.unsubscribe(_num_captured_callback)
