@@ -1181,7 +1181,7 @@ class DetectorIOC(PVGroup):
                         # it contains the cumulative sum of the frames in one acquisition.
                         # But intermediate frames are still useful in-case of an error during acquisition.
                         # Therefore, we try to get the intermediate frame with a timeout.
-                        index = self.num_captured.value + 1
+                        index = self.num_captured.value
                         if act_scans_value < self.num_scans.value:
                             try:
                                 data = await asyncio.wait_for(self._get_current_frame(), timeout=0.1)
@@ -1192,11 +1192,11 @@ class DetectorIOC(PVGroup):
                             data = await self._get_current_frame()
                             await self.writer.write_image(index, data)
                             # Capture metadata for the first frame
-                            if index == 1:
+                            if index == 0:
                                 self._write_metadata()
-                            await self.num_captured.write(index)
+                            await self.num_captured.write(index + 1)
                             logger.info(
-                                f"Committing frame {index} to file"
+                                f"Committing frame {self.num_captured.value} to file"
                             )
                     await self.num_processed.write(self.num_processed.value + 1)
             else:
