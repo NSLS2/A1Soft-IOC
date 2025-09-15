@@ -670,7 +670,7 @@ class DetectorWriter:
         """Write an array to the file."""
         if self._full_file_path is None:
             raise RuntimeError("File path not set")
-        with nxopen(self._full_file_path, "w") as file_handle:
+        with nxopen(self._full_file_path, "w", libver="latest") as file_handle:
             group = file_handle[path]
             group[name] = NXfield(
                 array,
@@ -691,7 +691,7 @@ class DetectorWriter:
         if self._full_file_path is None:
             raise RuntimeError("File path not set")
 
-        with nxopen(self._full_file_path, "w") as file_handle:
+        with nxopen(self._full_file_path, "w", libver="latest") as file_handle:
             self._create_structure(file_handle)
         
         first_pass = True
@@ -704,7 +704,7 @@ class DetectorWriter:
                 if item is None:
                     break
 
-                with nxopen(self._full_file_path, "w") as file_handle:
+                with nxopen(self._full_file_path, "w", libver="latest") as file_handle:
                     entry = file_handle.entry
                     detector = entry.instrument.analyzer
                     index, data = item
@@ -778,6 +778,11 @@ class DetectorWriter:
 
         with nxopen(self._full_file_path, "w", libver="latest") as file_handle:
             # Add the final data field to the file
+            if "entry" not in file_handle or \
+                "instrument" not in file_handle.entry or \
+                "analyzer" not in file_handle.entry.instrument:
+                logger.warning("File was never initialized, skipping linking")
+                return
             deflector_x_exists = (
                 "deflector_x" in file_handle.entry.instrument.analyzer
             )
@@ -1136,7 +1141,7 @@ class DetectorIOC(PVGroup):
     @act_scans.scan(period=0.05)
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for acutal number of scans completed."""
-        if self.acquisition_status.value == 1:
+        if self.acquisition_status.value == 1 and self.tcp_client.connected:
             num_processed = self.num_processed.value
 
             # Get actScans parameter
@@ -1181,19 +1186,20 @@ class DetectorIOC(PVGroup):
     @state.scan(period=0.05)  # 50ms scan - state changes can be frequent in fixed mode
     async def state(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for state changes."""
-        response = await self.tcp_client.get_parameter(
-            self._pvs_to_param_names[self.state]
-        )
-        if response and "values" in response:
-            value = response["values"][0]["value"]
-            await self.state.write(value)
-        else:
-            logger.error(f"Failed to get state update, got: {response}")
+        if self.tcp_client.connected:
+            response = await self.tcp_client.get_parameter(
+                self._pvs_to_param_names[self.state]
+            )
+            if response and "values" in response:
+                value = response["values"][0]["value"]
+                await self.state.write(value)
+            else:
+                logger.error(f"Failed to get state update, got: {response}")
 
     @sync.scan(period=1.0, use_scan_field=True)  # 1s - parameters change infrequently
     async def sync(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Synchronize parameters with detector."""
-        if instance.value == "ON":
+        if instance.value == "ON" and self.tcp_client.connected:
             try:
                 response = await self.tcp_client.get_all_parameters()
                 if response and "values" in response:
