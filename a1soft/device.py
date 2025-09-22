@@ -35,7 +35,6 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     file_capture = Cpt(EpicsSignal, "FILE:CAPTURE")
     file_name = Cpt(EpicsSignal, "FILE:NAME", string=True)
     file_path = Cpt(EpicsSignal, "FILE:PATH", string=True)
-    file_status = Cpt(EpicsSignalRO, "FILE:STATUS")
     num_captured = Cpt(EpicsSignalRO, "FILE:NUM_CAPTURED")
     num_processed = Cpt(EpicsSignalRO, "FILE:NUM_PROCESSED")
 
