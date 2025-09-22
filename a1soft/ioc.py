@@ -837,7 +837,6 @@ class DetectorTCPClient:
                 "timestamp": time.time(),
             }
 
-            logger.info(f"Live data header: {result}")
             # Read pixel data if length > 0
             if length > 0:
                 pixel_data_bytes = await self.live_reader.readexactly(length)
