@@ -7,7 +7,7 @@ from bluesky.protocols import WritesStreamAssets, Readable
 from bluesky.utils import SyncOrAsyncIterator, StreamAsset
 from event_model import compose_stream_resource, DataKey
 from ophyd import Device, Component as Cpt, EpicsSignal, EpicsSignalRO, Staged
-from ophyd.status import Status
+from ophyd.status import Status, WaitTimeoutError
 
 
 class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
@@ -158,7 +158,12 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
 
         s = Status()
         self._status = s
-        self.acquire.set(1).wait(5.0)
+        try:
+            self.acquire.set(1).wait(5.0)
+        except WaitTimeoutError as e:
+            self._status.set_exception(e)
+            self._status = None
+            return s
         self._acq_active = True
         return s
 
