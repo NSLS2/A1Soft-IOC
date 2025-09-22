@@ -11,13 +11,14 @@ class TestParameterSetting:
         """Test setting integer parameters."""
         device = detector_in_standby
 
-        try:
-            device.frames.set(201).wait(5.0)
+        if device.frames.get() == 200:
+            to_set = 300
+        else:
+            to_set = 200
+        device.frames.set(to_set).wait(5.0)
 
-            actual_frames = device.frames.get()
-            assert actual_frames == 101, f"Expected frames=101, got {actual_frames}"
-        finally:
-            device.frames.set(200).wait(5.0)
+        actual_frames = device.frames.get()
+        assert actual_frames == to_set, f"Expected frames={to_set}, got {actual_frames}"
 
     def test_float_parameter_setting(self, detector_in_standby):
         """Test setting float parameters."""
@@ -55,22 +56,21 @@ class TestParameterSetting:
         assert len(enum_strings) > 1, "Should have multiple pass energy options"
 
         # Find a different value to set
-        new_pass_energy = None
+        new_pass_energy = enum_strings[0]
         for enum_val in enum_strings:
             if enum_val != original_pass_energy:
                 new_pass_energy = enum_val
                 break
 
-        if new_pass_energy:
-            try:
-                device.pass_energy.set(new_pass_energy).wait(5.0)
+        try:
+            device.pass_energy.set(new_pass_energy).wait(5.0)
 
-                actual_pass_energy = device.pass_energy.get(as_string=True)
-                assert actual_pass_energy == new_pass_energy, (
-                    f"Expected {new_pass_energy}, got {actual_pass_energy}"
-                )
-            finally:
-                device.pass_energy.set(original_pass_energy).wait(5.0)
+            actual_pass_energy = device.pass_energy.get(as_string=True)
+            assert actual_pass_energy == new_pass_energy, (
+                f"Expected {new_pass_energy}, got {actual_pass_energy}"
+            )
+        finally:
+            device.pass_energy.set(original_pass_energy).wait(5.0)
 
 
 class TestReadOnlyParameters:
