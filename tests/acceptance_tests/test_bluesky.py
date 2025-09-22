@@ -172,3 +172,48 @@ class TestDeviceWithBluesky:
         # Should have multiple events
         events = [doc for name, doc in documents if name == "event"]
         assert len(events) >= 5, "Should have at least 5 event documents"
+
+    def test_device_with_dither_scan(
+        self, detector_in_standby, run_engine, test_output_dir
+    ):
+        """Test device can handle dither scan."""
+        device = detector_in_standby
+        RE = run_engine
+
+        # Configure device
+        device.acq_mode.set("Dither").wait(5.0)
+        device.file_path.set(str(test_output_dir)).wait(5.0)
+        device.file_name.set("test_dither_scan.nxs").wait(5.0)
+        device.num_scans.set(1).wait(5.0)
+        device.dith_steps.set(10).wait(5.0)
+
+        documents = []
+        RE.subscribe(lambda name, doc: documents.append((name, doc)))
+
+        RE(scan([device], device.deflX, 0.1, 8.7, 5))
+
+        # Should have multiple events
+        events = [doc for name, doc in documents if name == "event"]
+        assert len(events) >= 5, "Should have at least 5 event documents"
+
+    def test_device_with_fixed_trigd_scan(
+        self, detector_in_standby, run_engine, test_output_dir
+    ):
+        """Test device can handle FixedTrigd scan."""
+        device = detector_in_standby
+        RE = run_engine
+
+        # Configure device
+        device.acq_mode.set("FixedTrigd").wait(5.0)
+        device.file_path.set(str(test_output_dir)).wait(5.0)
+        device.file_name.set("test_fixed_trigd_scan.nxs").wait(5.0)
+        device.num_scans.set(1).wait(5.0)
+
+        documents = []
+        RE.subscribe(lambda name, doc: documents.append((name, doc)))
+
+        RE(scan([device], device.deflX, 0.1, 8.7, 5))
+
+        # Should have multiple events
+        events = [doc for name, doc in documents if name == "event"]
+        assert len(events) >= 5, "Should have at least 5 event documents"
