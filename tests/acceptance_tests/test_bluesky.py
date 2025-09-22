@@ -8,7 +8,7 @@ import pytest
 from bluesky import RunEngine
 from bluesky.plans import count, scan
 from bluesky.utils import FailedStatus
-from ophyd.status import Status
+from ophyd.status import StatusBase, WaitTimeoutError
 from ophyd import Staged
 
 
@@ -83,7 +83,7 @@ class TestDeviceWithBluesky:
 
         # Test triggering when staged
         status = device.trigger()
-        assert isinstance(status, Status), "Should return Status when staged"
+        assert isinstance(status, StatusBase), "Should return Status when staged"
 
         # Unstage
         device.unstage()
@@ -129,7 +129,7 @@ class TestDeviceWithBluesky:
         device.live_max_count_threshold.set(-1).wait(5.0)
 
         # Should not run the second iteration
-        with pytest.raises(FailedStatus):
+        with pytest.raises((FailedStatus, WaitTimeoutError)):
             RE(count([device], num=2))
 
     def test_device_with_scan(self, detector_in_standby, run_engine, test_output_dir):

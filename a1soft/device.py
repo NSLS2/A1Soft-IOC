@@ -100,7 +100,6 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._status = None
-        self._acq_set_status = None
         self._index = 0
         self._last_emitted_index = 0
         self._composer = None
@@ -118,7 +117,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 (self.file_capture, 1),
             ]
         )
-        if self.frames.get() < 200:
+        if self.frames.get() < 200 and self.acq_mode.get(as_string=True) != "Swept":
             self.stage_sigs.update(
                 [(self.frames, 200)],
             )
@@ -141,13 +140,12 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
 
     def _live_max_count_exceeded_monitor(self, value=None, **kwargs):
         if self._status is not None and value:
-            err = RuntimeError(
-                f"Max count safety limit exceeded: {self.live_max_count.get()} > {self.live_max_count_threshold.get()}"
+            self._status.set_exception(
+                RuntimeError(
+                    f"Max count safety limit exceeded: {self.live_max_count.get()} > {self.live_max_count_threshold.get()}"
+                )
             )
-            self._status.set_exception(err)
-            self._acq_set_status.set_exception(err)
             self._status = None
-            self._acq_set_status = None
 
     def trigger(self):
         if self._staged != Staged.yes:
@@ -156,11 +154,9 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 "Call the stage() method before triggering."
             )
 
-        status = Status()
-        acq_set_status = self.acquire.set(1)
-        self._status = status
-        self._acq_set_status = acq_set_status
-        return status & acq_set_status
+        self._status = Status()
+        self.acquire.set(1).wait(5.0)
+        return self._status
 
     def describe(self) -> dict[str, DataKey]:
         describe = super().describe()
