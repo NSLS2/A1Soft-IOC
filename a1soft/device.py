@@ -100,7 +100,6 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._status = None
-        self._acq_active = False
         self._index = 0
         self._last_emitted_index = 0
         self._composer = None
@@ -130,18 +129,17 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         self._last_emitted_index = 0
 
         self.state.subscribe(self._state_changed, run=False)
-        self.live_max_count_exceeded.subscribe(self._live_max_count_exceeded_changed, run=False)
+        self.live_max_count_exceeded.subscribe(self._live_max_count_exceeded_monitor, run=False)
         return super().stage()
 
     def _state_changed(self, value=None, old_value=None, **kwargs):
-        if self._acq_active and self._status is not None and value == "STANDBY":
-            print(f"stage: {value=} {old_value=}")
+        if self._status is not None and value == "STANDBY" and old_value == "RUNNING":
             self._status.set_finished()
             self._index += 1
             self._status = None
 
-    def _live_max_count_exceeded_changed(self, value=None, old_value=None, **kwargs):
-        if self._status is not None and value == "Yes" and old_value == "No":
+    def _live_max_count_exceeded_monitor(self, value=None, **kwargs):
+        if self._status is not None and value == "Yes":
             self._status.set_exception(
                 RuntimeError(
                     f"Max count safety limit exceeded: {self.live_max_count.get()} > {self.live_max_count_threshold.get()}"
@@ -156,16 +154,9 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 "Call the stage() method before triggering."
             )
 
-        s = Status()
-        self._status = s
-        try:
-            self.acquire.set(1).wait(5.0)
-        except WaitTimeoutError as e:
-            self._status.set_exception(e)
-            self._status = None
-            return s
-        self._acq_active = True
-        return s
+        self._status = Status()
+        self.acquire.set(1)
+        return self._status
 
     def describe(self) -> dict[str, DataKey]:
         describe = super().describe()
@@ -217,5 +208,5 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         self.det_off.set(1).wait(3.0)
         super().unstage()
         self.state.unsubscribe(self._state_changed)
-        self.live_max_count_exceeded.unsubscribe(self._live_max_count_exceeded_changed)
+        self.live_max_count_exceeded.unsubscribe(self._live_max_count_exceeded_monitor)
         self._composer = None
