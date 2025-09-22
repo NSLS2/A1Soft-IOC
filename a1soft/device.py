@@ -7,7 +7,7 @@ from bluesky.protocols import WritesStreamAssets, Readable
 from bluesky.utils import SyncOrAsyncIterator, StreamAsset
 from event_model import compose_stream_resource, DataKey
 from ophyd import Device, Component as Cpt, EpicsSignal, EpicsSignalRO, Staged
-from ophyd.status import Status, WaitTimeoutError
+from ophyd.status import Status
 
 
 class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
@@ -139,7 +139,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
             self._status = None
 
     def _live_max_count_exceeded_monitor(self, value=None, **kwargs):
-        if self._status is not None and value == "Yes":
+        if self._status is not None and value:
             self._status.set_exception(
                 RuntimeError(
                     f"Max count safety limit exceeded: {self.live_max_count.get()} > {self.live_max_count_threshold.get()}"
@@ -154,8 +154,9 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 "Call the stage() method before triggering."
             )
 
-        self._status = Status()
-        self.acquire.set(1)
+        acq_status = Status()
+        acq_set = self.acquire.set(1)
+        self._status = acq_set & acq_status
         return self._status
 
     def describe(self) -> dict[str, DataKey]:
