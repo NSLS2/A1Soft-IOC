@@ -153,10 +153,11 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 "Call the stage() method before triggering."
             )
 
-        self._status = Status()
+        s = Status()
+        self._status = s
         self.acquire.set(1).wait(5.0)
         self._acq_active = True
-        return self._status
+        return s
 
     def describe(self) -> dict[str, DataKey]:
         describe = super().describe()
