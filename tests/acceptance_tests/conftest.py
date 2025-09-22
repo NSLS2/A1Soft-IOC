@@ -95,7 +95,7 @@ def wait_for_state(device, expected_state, timeout=10.0):
             raise TimeoutError(
                 f"Timeout waiting for state {expected_state}, current: {device.state.get()}"
             )
-        time.sleep(0.1)
+        time.sleep(1.0)
 
 
 def wait_for_condition(condition_func, timeout=10.0, poll_interval=0.1):

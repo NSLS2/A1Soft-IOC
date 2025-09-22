@@ -80,6 +80,15 @@ class DetectorTCPClient:
         self._reconnect_event: asyncio.Event = asyncio.Event()
         self._shutdown_event: asyncio.Event = asyncio.Event()
 
+        # Statistics infrastructure
+        self._stats_task: asyncio.Task | None = None
+        self._json_bytes_received: int = 0
+        self._data_bytes_received: int = 0
+        self._live_bytes_received: int = 0
+        self._json_messages_processed: int = 0
+        self._data_frames_processed: int = 0
+        self._live_frames_processed: int = 0
+
     @property
     def _cmd_id(self) -> int:
         return self._current_cmd_id
@@ -139,6 +148,9 @@ class DetectorTCPClient:
             # Start auto-reconnect task if enabled
             if self.auto_reconnect and not self._reconnect_task:
                 self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+
+            # Start statistics monitoring task
+            self._stats_task = asyncio.create_task(self._stats_monitor_loop())
 
             logger.info("Connected to detector TCP interface using asyncio streams")
         except Exception as e:
@@ -228,6 +240,9 @@ class DetectorTCPClient:
             self._live_reader_running = True
             self._live_reader_task = asyncio.create_task(self._live_reader_loop())
 
+            # Start statistics monitoring task
+            self._stats_task = asyncio.create_task(self._stats_monitor_loop())
+
         except Exception as e:
             await self._cleanup_connections()
             self.connected = False
@@ -296,6 +311,15 @@ class DetectorTCPClient:
             except asyncio.CancelledError:
                 pass
             self._live_reader_task = None
+
+        # Stop statistics monitor
+        if self._stats_task:
+            self._stats_task.cancel()
+            try:
+                await self._stats_task
+            except asyncio.CancelledError:
+                pass
+            self._stats_task = None
 
         # Clean up pending responses
         for future in self._pending_responses.values():
@@ -435,6 +459,56 @@ class DetectorTCPClient:
 
         logger.info("Live data reader loop stopped")
 
+    async def _stats_monitor_loop(self) -> None:
+        """Background task that prints statistics every 30 seconds."""
+        logger.info("Starting statistics monitor loop")
+        while not self._shutdown_event.is_set():
+            try:
+                await asyncio.sleep(30.0)
+
+                # Calculate totals
+                total_bytes = (
+                    self._json_bytes_received +
+                    self._data_bytes_received +
+                    self._live_bytes_received
+                )
+                total_messages = (
+                    self._json_messages_processed +
+                    self._data_frames_processed +
+                    self._live_frames_processed
+                )
+
+                # Print statistics
+                print("=== TCP Server Statistics (last 30s) ===")
+                print(f"Total bytes received: {total_bytes:,} bytes")
+                print(f"  JSON port: {self._json_bytes_received:,} bytes")
+                print(f"  Data port: {self._data_bytes_received:,} bytes")
+                print(f"  Live port: {self._live_bytes_received:,} bytes")
+                print(f"Total messages/frames: {total_messages}")
+                print(f"  JSON messages: {self._json_messages_processed}")
+                print(f"  Data frames: {self._data_frames_processed}")
+                print(f"  Live frames: {self._live_frames_processed}")
+                print(f"Queue sizes - Data: {self._data_queue.qsize()}, Live: {self._live_queue.qsize()}")
+                print(f"Avg throughput: {total_bytes/30.0:.1f} bytes/sec")
+                print()
+
+                # Reset counters for next interval
+                self._json_bytes_received = 0
+                self._data_bytes_received = 0
+                self._live_bytes_received = 0
+                self._json_messages_processed = 0
+                self._data_frames_processed = 0
+                self._live_frames_processed = 0
+
+            except asyncio.CancelledError:
+                logger.info("Statistics monitor cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in statistics monitor: {e}")
+                await asyncio.sleep(1.0)
+
+        logger.info("Statistics monitor loop stopped")
+
     async def _read_response(self) -> dict[str, Any] | None:
         """Read response from JSON stream using asyncio streams."""
         if not self.json_reader:
@@ -443,6 +517,10 @@ class DetectorTCPClient:
         try:
             # Blocking read until \r\n terminator
             response_data = await self.json_reader.readuntil(b"\r\n")
+
+            # Update statistics
+            self._json_bytes_received += len(response_data)
+            self._json_messages_processed += 1
 
             # Remove the terminator and decode
             response_bytes = response_data.rstrip(b"\r\n")
@@ -570,6 +648,9 @@ class DetectorTCPClient:
             # Read 40-byte header
             header_data = await self.data_reader.readexactly(40)
 
+            # Update statistics for header
+            self._data_bytes_received += len(header_data)
+
             # Parse header
             marker = int.from_bytes(header_data[0:4], byteorder="big", signed=False)
 
@@ -621,6 +702,9 @@ class DetectorTCPClient:
                 if channel_1_data is None:
                     return None
 
+                # Update statistics for channel 1 data
+                self._data_bytes_received += len(channel_1_data)
+
                 # Use numpy to directly interpret the binary data (much faster than Python loops)
                 pixel_data_1 = np.frombuffer(
                     channel_1_data, dtype="<u4"
@@ -637,6 +721,9 @@ class DetectorTCPClient:
                 if channel_2_data is None:
                     return None
 
+                # Update statistics for channel 2 data
+                self._data_bytes_received += len(channel_2_data)
+
                 # Use numpy to directly interpret the binary data (much faster than Python loops)
                 pixel_data_2 = np.frombuffer(
                     channel_2_data, dtype="<u4"
@@ -645,6 +732,9 @@ class DetectorTCPClient:
                 result["channel_2_sum"] = int(pixel_data_2.sum())
 
                 logger.info(f"Channel 2 sum: {result['channel_2_sum']}")
+
+            # Update frame count statistics
+            self._data_frames_processed += 1
 
             return result
 
@@ -719,6 +809,9 @@ class DetectorTCPClient:
             # Read 16-byte header according to Live Socket schema
             header_data = await self.live_reader.readexactly(16)
 
+            # Update statistics for header
+            self._live_bytes_received += len(header_data)
+
             # Parse header according to documented schema:
             # Marker (0-2): 2 bytes - Message start marker  
             # Index (2-4): 2 bytes - Current frame number
@@ -744,15 +837,21 @@ class DetectorTCPClient:
             # Read pixel data if length > 0
             if length > 0:
                 pixel_data_bytes = await self.live_reader.readexactly(length)
-                
+
+                # Update statistics for pixel data
+                self._live_bytes_received += len(pixel_data_bytes)
+
                 # Convert to uint32 numpy array (same format as data port)
                 pixel_data = np.frombuffer(pixel_data_bytes, dtype=">u4")  # big-endian uint32
-                
+
                 # Calculate statistics for monitoring purposes
                 result["max_count"] = int(np.max(pixel_data))
-                
+
                 # Don't store the full pixel array to save memory - just the statistics
                 # Full arrays are available via the data port when needed
+
+            # Update frame count statistics
+            self._live_frames_processed += 1
 
             return result
 
@@ -1203,6 +1302,7 @@ class DetectorIOC(PVGroup):
         self._state_lock = asyncio.Lock()
         self._acquire_lock = asyncio.Lock()
         self._file_capture_lock = asyncio.Lock()
+        self._live_monitor_lock = asyncio.Lock()
 
         # Convenience mappings for parameter names to PVs and vice versa
         self._pvs_to_param_names: dict[PvpropertyData, str] = {
