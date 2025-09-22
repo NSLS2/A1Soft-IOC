@@ -453,7 +453,7 @@ class DetectorTCPClient:
                 return parsed_response
             except (UnicodeDecodeError, json.JSONDecodeError) as e:
                 logger.error(
-                    f"Failed to parse response: {e}, response: {response_bytes[:100]}..."
+                    f"Failed to parse response: {e}, response: {response_bytes}"
                 )
                 return None
 
@@ -928,11 +928,13 @@ class DetectorIOC(PVGroup):
         name="LENS_MODE",
         dtype=ChannelType.ENUM,
         enum_strings=(
+            "L4Ang0d6",
             "L4Ang0d8",
             "L4Ang1d6",
             "L4Ang3d9",
             "L4MAng0d7",
             "L4MSpat5",
+            "L4Spat5",
         ),
     )
     num_scans = pvproperty(put=_param_write, name="NUM_SCANS", dtype=int)
