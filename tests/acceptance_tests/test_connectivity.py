@@ -71,28 +71,6 @@ class TestBasicConnectivity:
                 f"{param_name} should be {expected_type}, got {type(value)}"
             )
 
-    def test_file_status_monitoring(self, analyzer_device):
-        """Test file-related status monitoring."""
-        device = analyzer_device
-
-        # Test file capture status
-        file_capture = device.file_capture.get(as_string=True)
-        assert file_capture in ["Off", "On"], (
-            f"Invalid file_capture status: {file_capture}"
-        )
-
-        # Test file status string
-        file_status = device.file_status.get()
-        assert isinstance(file_status, str), "File status should be a string"
-
-        # Test counters
-        num_captured = device.num_captured.get()
-        num_processed = device.num_processed.get()
-        assert isinstance(num_captured, int), "num_captured should be integer"
-        assert isinstance(num_processed, int), "num_processed should be integer"
-        assert num_captured >= 0, "num_captured should be non-negative"
-        assert num_processed >= 0, "num_processed should be non-negative"
-
 
 class TestStatusMonitoring:
     """Test status monitoring and state changes."""

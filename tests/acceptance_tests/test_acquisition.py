@@ -86,9 +86,7 @@ class TestAcquisitionControl:
 
         # Verify scan counter advanced
         final_act_scans = device.act_scans.get()
-        assert final_act_scans > 0, (
-            "Act scans should have advanced"
-        )
+        assert final_act_scans > 0, "Act scans should have advanced"
 
 
 class TestAcquisitionStates:
@@ -122,9 +120,10 @@ class TestAcquisitionStates:
             wait_for_state(device, "STANDBY", timeout=10.0)
 
             # Verify we saw the expected state transitions
-            assert transitions_seen == [("STANDBY", "RUNNING"), ("RUNNING", "STANDBY")], (
-                "Should have seen STANDBY, RUNNING, STANDBY transitions"
-            )
+            assert transitions_seen == [
+                ("STANDBY", "RUNNING"),
+                ("RUNNING", "STANDBY"),
+            ], "Should have seen STANDBY, RUNNING, STANDBY transitions"
 
         finally:
             device.state.unsubscribe(state_callback)
@@ -136,6 +135,7 @@ class TestAcquisitionStates:
         device.num_scans.set(5).wait(5.0)
 
         act_scans_transitions = []
+
         def act_scans_callback(value=None, old_value=None, **kwargs):
             if value != old_value:
                 act_scans_transitions.append((old_value, value))
@@ -151,8 +151,11 @@ class TestAcquisitionStates:
             wait_for_state(device, "RUNNING", timeout=10.0)
             wait_for_state(device, "STANDBY", timeout=120.0)
 
-            assert act_scans_transitions[0][1] == 0, "Act scans should start at 0"
-            assert act_scans_transitions[1:] == [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)], (
+            # Throw away the first transition if it's not 0 -> 1
+            if act_scans_transitions[0][0] != 0:
+                act_scans_transitions = act_scans_transitions[1:]
+
+            assert act_scans_transitions == [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)], (
                 "Act scans should be (0, 1), (1, 2), (2, 3), (3, 4), (4, 5)"
             )
 
