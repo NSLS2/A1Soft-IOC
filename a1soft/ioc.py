@@ -1594,13 +1594,6 @@ class DetectorIOC(PVGroup):
                 return value
 
             if value > 0:
-                if self.max_count_exceeded.value == "Yes":
-                    raise RuntimeError(
-                        (
-                            "Acquisition cannot be started due to max count threshold exceeded. "
-                            "If it is safe to do so, reset the max count exceeded flag."
-                        )
-                    )
                 response: dict[str, Any] | None = await self.tcp_client.send_command(
                     "ACTION", action="START"
                 )

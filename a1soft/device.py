@@ -100,6 +100,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._status = None
+        self._acq_active = False
         self._index = 0
         self._last_emitted_index = 0
         self._composer = None
@@ -125,26 +126,26 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         self._last_emitted_index = 0
 
         self.state.subscribe(self._stage_changed, run=False)
+        self.live_max_count_exceeded.subscribe(self._live_max_count_exceeded_changed, run=False)
         return super().stage()
 
     def _stage_changed(self, value=None, old_value=None, **kwargs):
-        if self._status is None:
+        if not self._acq_active or self._status is None:
             return
-        if self.live_max_count_exceeded.get():
-            print(f"{self.live_max_count_exceeded.name=}")
-            max_count = self.live_max_count.get()
-            max_count_threshold = self.live_max_count_threshold.get()
-            self._status.set_exception(
-                RuntimeError(
-                    f"Max count safety limit exceeded: {max_count} > {max_count_threshold}"
-                )
-            )
-            self._status = None
-        elif value == "STANDBY" and old_value == "RUNNING":
-            # Settle time for the detector to transition properly
-            ttime.sleep(1.0)
+        elif value == "STANDBY":
             self._status.set_finished()
             self._index += 1
+            self._status = None
+
+    def _live_max_count_exceeded_changed(self, value=None, **kwargs):
+        if not self._acq_active or self._status is None:
+            return
+        if value == "Yes":
+            self._status.set_exception(
+                RuntimeError(
+                    f"Max count safety limit exceeded: {self.live_max_count.get()} > {self.live_max_count_threshold.get()}"
+                )
+            )
             self._status = None
 
     def trigger(self):
@@ -156,6 +157,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
 
         self._status = Status()
         self.acquire.set(1).wait(5.0)
+        self._acq_active = True
         return self._status
 
     def describe(self) -> dict[str, DataKey]:
@@ -208,4 +210,5 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         self.det_off.set(1).wait(3.0)
         super().unstage()
         self.state.unsubscribe(self._stage_changed)
+        self.live_max_count_exceeded.unsubscribe(self._live_max_count_exceeded_changed)
         self._composer = None
