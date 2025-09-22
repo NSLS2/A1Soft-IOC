@@ -130,17 +130,13 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         return super().stage()
 
     def _stage_changed(self, value=None, old_value=None, **kwargs):
-        if not self._acq_active or self._status is None:
-            return
-        elif value == "STANDBY":
+        if self._acq_active and self._status is not None and value == "STANDBY":
             self._status.set_finished()
             self._index += 1
             self._status = None
 
-    def _live_max_count_exceeded_changed(self, value=None, **kwargs):
-        if not self._acq_active or self._status is None:
-            return
-        if value == "Yes":
+    def _live_max_count_exceeded_changed(self, value=None, old_value=None, **kwargs):
+        if self._acq_active and self._status is not None and value == "Yes" and old_value == "No":
             self._status.set_exception(
                 RuntimeError(
                     f"Max count safety limit exceeded: {self.live_max_count.get()} > {self.live_max_count_threshold.get()}"
