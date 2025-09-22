@@ -118,6 +118,10 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 (self.file_capture, 1),
             ]
         )
+        if self.frames.get() < 200:
+            self.stage_sigs.update(
+                [(self.frames, 200)],
+            )
 
         path = Path(self.file_path.get())
         file_name = Path(self.file_name.get())
@@ -137,8 +141,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
             self._status = None
 
     def _live_max_count_exceeded_changed(self, value=None, old_value=None, **kwargs):
-        if self._acq_active and self._status is not None and value == "Yes" and old_value == "No":
-            print(f"max_count: {value=} {old_value=}")
+        if self._status is not None and value == "Yes" and old_value == "No":
             self._status.set_exception(
                 RuntimeError(
                     f"Max count safety limit exceeded: {self.live_max_count.get()} > {self.live_max_count_threshold.get()}"

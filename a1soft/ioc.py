@@ -1492,7 +1492,7 @@ class DetectorIOC(PVGroup):
     @state.scan(period=0.05)  # 50ms scan - state changes can be frequent in fixed mode
     async def state(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for state changes."""
-        if self.tcp_client.connected:
+        if self.acquisition_status.value == 1 and self.tcp_client.connected:
             response = await self.tcp_client.get_parameter(
                 self._pvs_to_param_names[self.state]
             )
@@ -1594,6 +1594,13 @@ class DetectorIOC(PVGroup):
                 return value
 
             if value > 0:
+                if self.max_count_exceeded.value == "Yes":
+                    raise RuntimeError(
+                        (
+                            "Acquisition cannot be started due to max count threshold exceeded. "
+                            "If it is safe to do so, reset the max count exceeded flag."
+                        )
+                    )
                 response: dict[str, Any] | None = await self.tcp_client.send_command(
                     "ACTION", action="START"
                 )
