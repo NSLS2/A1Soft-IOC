@@ -130,20 +130,21 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     def _stage_changed(self, value=None, old_value=None, **kwargs):
         if self._status is None:
             return
-        if value == "STANDBY" and old_value == "RUNNING":
+        if self.live_max_count_exceeded.get():
+            print(f"{self.live_max_count_exceeded.name=}")
+            max_count = self.live_max_count.get()
+            max_count_threshold = self.live_max_count_threshold.get()
+            self._status.set_exception(
+                RuntimeError(
+                    f"Max count safety limit exceeded: {max_count} > {max_count_threshold}"
+                )
+            )
+            self._status = None
+        elif value == "STANDBY" and old_value == "RUNNING":
             # Settle time for the detector to transition properly
             ttime.sleep(1.0)
-            if self.live_max_count_exceeded.get():
-                max_count = self.live_max_count.get()
-                max_count_threshold = self.live_max_count_threshold.get()
-                self._status.set_exception(
-                    RuntimeError(
-                        f"Max count safety limit exceeded: {max_count} > {max_count_threshold}"
-                    )
-                )
-            else:
-                self._status.set_finished()
-                self._index += 1
+            self._status.set_finished()
+            self._index += 1
             self._status = None
 
     def trigger(self):
