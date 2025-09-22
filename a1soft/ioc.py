@@ -807,22 +807,25 @@ class DetectorTCPClient:
 
         try:
             # Read 16-byte header according to Live Socket schema
-            header_data = await self.live_reader.readexactly(16)
+            header_data = await self.live_reader.readexactly(20)
 
             # Update statistics for header
             self._live_bytes_received += len(header_data)
 
             # Parse header according to documented schema:
-            # Marker (0-2): 2 bytes - Message start marker  
-            # Index (2-4): 2 bytes - Current frame number
-            # Width (4-8): 4 bytes - Width of image
-            # Height (8-12): 4 bytes - Height of image  
-            # Length (12-16): 4 bytes - Length of image in bytes
-            marker = int.from_bytes(header_data[0:2], byteorder="big", signed=False)
-            index = int.from_bytes(header_data[2:4], byteorder="big", signed=False)
-            width = int.from_bytes(header_data[4:8], byteorder="big", signed=False)
-            height = int.from_bytes(header_data[8:12], byteorder="big", signed=False)
-            length = int.from_bytes(header_data[12:16], byteorder="big", signed=False)
+            # Marker (0-4): 4 bytes - Message start marker  
+            # Index (4-8): 4 bytes - Current frame number
+            # Width (8-12): 4 bytes - Width of image
+            # Height (12-16): 4 bytes - Height of image  
+            # Length (16-20): 4 bytes - Length of image in bytes
+            marker = int.from_bytes(header_data[0:4], byteorder="big", signed=False)
+            if marker != 0xF0F0:
+                logger.error(f"Invalid marker={marker:#x}, expected 0xf0f0")
+                return None
+            index = int.from_bytes(header_data[4:8], byteorder="big", signed=True)
+            width = int.from_bytes(header_data[8:12], byteorder="big", signed=False)
+            height = int.from_bytes(header_data[12:16], byteorder="big", signed=False)
+            length = int.from_bytes(header_data[16:20], byteorder="big", signed=False)
 
             result = {
                 "marker": marker,
@@ -834,6 +837,7 @@ class DetectorTCPClient:
                 "timestamp": time.time(),
             }
 
+            logger.info(f"Live data header: {result}")
             # Read pixel data if length > 0
             if length > 0:
                 pixel_data_bytes = await self.live_reader.readexactly(length)
