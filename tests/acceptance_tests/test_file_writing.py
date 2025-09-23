@@ -18,7 +18,9 @@ class TestFileCapture:
         device = detector_in_standby
 
         if not test_output_dir.exists():
-            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
+            pytest.skip(
+                "Test output directory does not exist, must be run on same server as IOC"
+            )
 
         # Set file path and name
         file_path = str(test_output_dir)
@@ -86,7 +88,9 @@ class TestFileWriting:
         device = detector_in_standby
 
         if not test_output_dir.exists():
-            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
+            pytest.skip(
+                "Test output directory does not exist, must be run on same server as IOC"
+            )
 
         # Set up file capture
         file_path = str(test_output_dir)
@@ -117,7 +121,9 @@ class TestFileWriting:
         device = detector_in_standby
 
         if not test_output_dir.exists():
-            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
+            pytest.skip(
+                "Test output directory does not exist, must be run on same server as IOC"
+            )
 
         # Set up minimal acquisition parameters
         device.num_scans.set(1).wait(5.0)
@@ -158,7 +164,9 @@ class TestFileWriting:
         device = detector_in_standby
 
         if not test_output_dir.exists():
-            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
+            pytest.skip(
+                "Test output directory does not exist, must be run on same server as IOC"
+            )
 
         # Set up minimal acquisition parameters
         device.num_scans.set(2).wait(5.0)
@@ -197,7 +205,9 @@ class TestFileWriting:
         device = detector_in_standby
 
         if not test_output_dir.exists():
-            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
+            pytest.skip(
+                "Test output directory does not exist, must be run on same server as IOC"
+            )
 
         # Set up minimal acquisition parameters
         device.num_scans.set(2).wait(5.0)
@@ -235,7 +245,9 @@ class TestFileWriting:
         device = detector_in_standby
 
         if not test_output_dir.exists():
-            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
+            pytest.skip(
+                "Test output directory does not exist, must be run on same server as IOC"
+            )
 
         # Set up minimal acquisition parameters
         device.num_scans.set(1).wait(5.0)
@@ -275,7 +287,9 @@ class TestFilePathHandling:
         device = detector_in_standby
 
         if not tmp_path.exists():
-            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
+            pytest.skip(
+                "Test output directory does not exist, must be run on same server as IOC"
+            )
 
         # Use a nested directory that doesn't exist
         nested_dir = tmp_path / "nested" / "directories"

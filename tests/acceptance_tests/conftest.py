@@ -12,7 +12,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--prefix",
         default="A1Soft:",
-        help="EPICS PV prefix for the IOC (default: A1Soft:)"
+        help="EPICS PV prefix for the IOC (default: A1Soft:)",
     )
 
 

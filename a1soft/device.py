@@ -1,6 +1,5 @@
 from pathlib import Path
 from typing import Optional
-import time as ttime
 
 import numpy as np
 from bluesky.protocols import WritesStreamAssets, Readable
@@ -129,7 +128,9 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         self._last_emitted_index = 0
 
         self.state.subscribe(self._state_changed, run=False)
-        self.live_max_count_exceeded.subscribe(self._live_max_count_exceeded_monitor, run=False)
+        self.live_max_count_exceeded.subscribe(
+            self._live_max_count_exceeded_monitor, run=False
+        )
         return super().stage()
 
     def _state_changed(self, value=None, old_value=None, **kwargs):
