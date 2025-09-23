@@ -117,7 +117,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         # Must be live monitoring to start
         if self.live_monitoring.get(as_string=True) == "Off":
             self.live_monitoring.set("On").wait(3.0)
-        
+
         # File capture must be on and then turned off at unstage
         self.stage_sigs.update(
             [
