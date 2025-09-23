@@ -4,6 +4,8 @@ These tests verify that data can be written to NeXus/HDF5 files correctly.
 """
 
 import time
+
+import pytest
 from nexusformat.nexus import nxopen
 from .conftest import wait_for_state
 
@@ -14,6 +16,9 @@ class TestFileCapture:
     def test_file_capture_control(self, detector_in_standby, test_output_dir):
         """Test enabling and disabling file capture with proper path and filename."""
         device = detector_in_standby
+
+        if not test_output_dir.exists():
+            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
 
         # Set file path and name
         file_path = str(test_output_dir)
@@ -80,6 +85,9 @@ class TestFileWriting:
         """Test that created files have correct NeXus structure."""
         device = detector_in_standby
 
+        if not test_output_dir.exists():
+            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
+
         # Set up file capture
         file_path = str(test_output_dir)
         file_name = "test_structure.nxs"
@@ -107,6 +115,9 @@ class TestFileWriting:
     def test_acquisition_with_file_capture(self, detector_in_standby, test_output_dir):
         """Test acquisition with file capture enabled."""
         device = detector_in_standby
+
+        if not test_output_dir.exists():
+            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
 
         # Set up minimal acquisition parameters
         device.num_scans.set(1).wait(5.0)
@@ -146,6 +157,9 @@ class TestFileWriting:
         """Test multiple acquisitions with file capture enabled."""
         device = detector_in_standby
 
+        if not test_output_dir.exists():
+            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
+
         # Set up minimal acquisition parameters
         device.num_scans.set(2).wait(5.0)
 
@@ -182,6 +196,9 @@ class TestFileWriting:
         """Test that file is readable during acquisition and contains intermediate images."""
         device = detector_in_standby
 
+        if not test_output_dir.exists():
+            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
+
         # Set up minimal acquisition parameters
         device.num_scans.set(2).wait(5.0)
 
@@ -216,6 +233,9 @@ class TestFileWriting:
     def test_file_contains_metadata(self, detector_in_standby, test_output_dir):
         """Test that file contains metadata."""
         device = detector_in_standby
+
+        if not test_output_dir.exists():
+            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
 
         # Set up minimal acquisition parameters
         device.num_scans.set(1).wait(5.0)
@@ -253,6 +273,9 @@ class TestFilePathHandling:
     def test_directory_creation(self, detector_in_standby, tmp_path):
         """Test that directories are created if they don't exist."""
         device = detector_in_standby
+
+        if not tmp_path.exists():
+            pytest.skip("Test output directory does not exist, must be run on same server as IOC")
 
         # Use a nested directory that doesn't exist
         nested_dir = tmp_path / "nested" / "directories"

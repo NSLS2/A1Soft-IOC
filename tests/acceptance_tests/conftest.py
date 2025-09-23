@@ -7,6 +7,15 @@ from pathlib import Path
 from a1soft.device import SpectrumAnalyzer
 
 
+def pytest_addoption(parser):
+    """Add command line options for pytest."""
+    parser.addoption(
+        "--prefix",
+        default="A1Soft:",
+        help="EPICS PV prefix for the IOC (default: A1Soft:)"
+    )
+
+
 @pytest.fixture(scope="session")
 def event_loop():
     """Create an event loop for the test session."""
@@ -16,13 +25,14 @@ def event_loop():
 
 
 @pytest.fixture(scope="function")
-def analyzer_device():
+def analyzer_device(request):
     """Fixture providing a SpectrumAnalyzer device instance.
 
-    This assumes the IOC is running with prefix 'A1Soft:' on the local machine.
-    Modify the prefix if your IOC uses a different prefix.
+    This assumes the IOC is running on the local machine.
+    Use --prefix command line option to specify a different EPICS PV prefix.
     """
-    device = SpectrumAnalyzer(prefix="A1Soft:", name="analyzer")
+    prefix = request.config.getoption("--prefix")
+    device = SpectrumAnalyzer(prefix=prefix, name="analyzer")
 
     # Wait for initial connection
     device.wait_for_connection(timeout=10.0)
