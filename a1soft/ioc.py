@@ -1140,7 +1140,7 @@ class DetectorIOC(PVGroup):
 
     # Live data monitoring
     live_monitoring = pvproperty(
-        value="On", name="LIVE:MONITORING", enum_strings=("Off", "On"), dtype=bool
+        value="Off", name="LIVE:MONITORING", enum_strings=("Off", "On"), dtype=bool
     )
     """Enable/disable live data monitoring from live_port"""
     live_max_count = pvproperty(
