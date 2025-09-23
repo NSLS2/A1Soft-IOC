@@ -258,12 +258,9 @@ class TestFileWriting:
         file_name = "test_read_speed.nxs"
         full_path = test_output_dir / file_name
 
-        device.acq_mode.set("Fixed").wait(5.0)
         device.file_path.set(file_path).wait(5.0)
         device.file_name.set(file_name).wait(5.0)
         device.file_capture.set("On").wait(5.0)
-        # 1 frame every 200ms
-        device.frames.set(200).wait(5.0)
 
         # Acquire 1 frame
         device.acquire.set(1).wait(5.0)
