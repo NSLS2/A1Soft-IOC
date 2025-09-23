@@ -275,17 +275,15 @@ class TestFileWriting:
             start_time = time.time()
             with nxopen(full_path, "r") as f:
                 data = f["entry/instrument/analyzer/data"].nxvalue
-                angles = f["entry/instrument/analyzer/angles"].nxvalue
-                energies = f["entry/instrument/analyzer/energies"].nxvalue
-                deflector_x = f["entry/instrument/analyzer/deflector_x"].nxvalue
+                _ = f["entry/instrument/analyzer/angles"].nxvalue
+                _ = f["entry/instrument/analyzer/energies"].nxvalue
+                _ = f["entry/instrument/analyzer/deflector_x"].nxvalue
                 assert data.shape[0] == 1, "Should have 1 image"
-                #assert angles.shape[0] == 1, "Should have 1 angle"
-                #assert energies.shape[0] == 1, "Should have 1 energy"
-                #assert deflector_x.shape[0] == 1, "Should have 1 deflector_x"
             end_time = time.time()
             times.append(end_time - start_time)
 
         assert np.mean(times) < 0.1, "File should be read in less than 0.1 seconds"
+
 
 @pytest.mark.skipif(
     platform.system() != "Windows", reason="Must be run on same server as IOC"

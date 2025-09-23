@@ -920,7 +920,14 @@ class DetectorWriter:
         else:
             logger.error("Failed to get current frame for file writing")
 
-    def write_field(self, path: str, array: np.ndarray, name: str, units: str, **kwargs: dict[str, Any]) -> None:
+    def write_field(
+        self,
+        path: str,
+        array: np.ndarray,
+        name: str,
+        units: str,
+        **kwargs: dict[str, Any],
+    ) -> None:
         """Write an array to the file."""
         if self._full_file_path is None:
             raise RuntimeError("File path not set")
