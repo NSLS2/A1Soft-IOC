@@ -1462,31 +1462,33 @@ class DetectorIOC(PVGroup):
                         )
 
                     if self.file_capture.value == "On":
-                        # We only care about committing the final frame of each acquisition to the file since
-                        # it contains the cumulative sum of the frames in one acquisition.
-                        # But intermediate frames are still useful in-case of an error during acquisition.
-                        # Therefore, we try to get the intermediate frame with a timeout.
-                        index = self.num_captured.value
-                        if act_scans_value < self.num_scans.value:
-                            try:
-                                data = await asyncio.wait_for(
-                                    self._get_current_frame(), timeout=0.1
-                                )
+                        # Don't want to stop file capture before writing the frames to the file
+                        async with self._file_capture_lock:
+                            # We only care about committing the final frame of each acquisition to the file since
+                            # it contains the cumulative sum of the frames in one acquisition.
+                            # But intermediate frames are still useful in-case of an error during acquisition.
+                            # Therefore, we try to get the intermediate frame with a timeout.
+                            index = self.num_captured.value
+                            if act_scans_value < self.num_scans.value:
+                                try:
+                                    data = await asyncio.wait_for(
+                                        self._get_current_frame(), timeout=0.1
+                                    )
+                                    await self.writer.write_image(index, data)
+                                except asyncio.TimeoutError:
+                                    logger.warning(
+                                        "Failed to get current frame in 100ms, skipping current frame"
+                                    )
+                            else:
+                                data = await self._get_current_frame()
                                 await self.writer.write_image(index, data)
-                            except asyncio.TimeoutError:
-                                logger.warning(
-                                    "Failed to get current frame in 100ms, skipping current frame"
+                                # Capture metadata for the first frame
+                                if index == 0:
+                                    self._write_metadata()
+                                await self.num_captured.write(index + 1)
+                                logger.info(
+                                    f"Committing frame {self.num_captured.value} to file"
                                 )
-                        else:
-                            data = await self._get_current_frame()
-                            await self.writer.write_image(index, data)
-                            # Capture metadata for the first frame
-                            if index == 0:
-                                self._write_metadata()
-                            await self.num_captured.write(index + 1)
-                            logger.info(
-                                f"Committing frame {self.num_captured.value} to file"
-                            )
                     await self.num_processed.write(self.num_processed.value + 1)
             else:
                 logger.error(f"Failed to get actual number of scans, got: {response}")
