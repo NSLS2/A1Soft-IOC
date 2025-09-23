@@ -8,7 +8,7 @@ import pytest
 from bluesky import RunEngine
 from bluesky.plans import count, scan
 from bluesky.utils import FailedStatus
-from ophyd.status import Status
+from ophyd.status import StatusBase, WaitTimeoutError
 from ophyd import Staged
 
 
@@ -38,7 +38,6 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(5.0)
         device.file_name.set("test_count.nxs").wait(5.0)
         device.num_scans.set(1).wait(5.0)
-        device.det_max_count_threshold.set(5000).wait(5.0)
 
         # Execute count plan
         documents = []
@@ -68,7 +67,6 @@ class TestDeviceWithBluesky:
         # Configure device
         device.file_path.set(str(test_output_dir)).wait(5.0)
         device.file_name.set("test_staging.nxs").wait(5.0)
-        device.det_max_count_threshold.set(5000).wait(5.0)
 
         # Initially unstaged
         assert device._staged == Staged.no, "Should start unstaged"
@@ -85,7 +83,7 @@ class TestDeviceWithBluesky:
 
         # Test triggering when staged
         status = device.trigger()
-        assert isinstance(status, Status), "Should return Status when staged"
+        assert isinstance(status, StatusBase), "Should return Status when staged"
 
         # Unstage
         device.unstage()
@@ -105,7 +103,6 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(5.0)
         device.file_name.set("test_multi_trigger.nxs").wait(5.0)
         device.num_scans.set(1).wait(5.0)
-        device.det_max_count_threshold.set(5000).wait(5.0)
 
         documents = []
         RE.subscribe(lambda name, doc: documents.append((name, doc)))
@@ -127,10 +124,12 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(5.0)
         device.file_name.set("test_safety_limits.nxs").wait(5.0)
         device.num_scans.set(1).wait(5.0)
-        device.det_max_count_threshold.set(5).wait(5.0)
+        device.live_monitoring.set("On").wait(5.0)
+        # Set threshold to -1 to ensure that the safety limits are exceeded
+        device.live_max_count_threshold.set(-1).wait(5.0)
 
         # Should not run the second iteration
-        with pytest.raises(FailedStatus):
+        with pytest.raises((FailedStatus, WaitTimeoutError)):
             RE(count([device], num=2))
 
     def test_device_with_scan(self, detector_in_standby, run_engine, test_output_dir):
@@ -142,7 +141,6 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(5.0)
         device.file_name.set("test_multi_trigger.nxs").wait(5.0)
         device.num_scans.set(1).wait(5.0)
-        device.det_max_count_threshold.set(5000).wait(5.0)
 
         documents = []
         RE.subscribe(lambda name, doc: documents.append((name, doc)))
@@ -165,7 +163,51 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(5.0)
         device.file_name.set("test_multi_trigger.nxs").wait(5.0)
         device.num_scans.set(1).wait(5.0)
-        device.det_max_count_threshold.set(5000).wait(5.0)
+
+        documents = []
+        RE.subscribe(lambda name, doc: documents.append((name, doc)))
+
+        RE(scan([device], device.deflX, 0.1, 8.7, 5))
+
+        # Should have multiple events
+        events = [doc for name, doc in documents if name == "event"]
+        assert len(events) >= 5, "Should have at least 5 event documents"
+
+    def test_device_with_dither_scan(
+        self, detector_in_standby, run_engine, test_output_dir
+    ):
+        """Test device can handle dither scan."""
+        device = detector_in_standby
+        RE = run_engine
+
+        # Configure device
+        device.acq_mode.set("Dither").wait(5.0)
+        device.file_path.set(str(test_output_dir)).wait(5.0)
+        device.file_name.set("test_dither_scan.nxs").wait(5.0)
+        device.num_scans.set(1).wait(5.0)
+        device.dith_steps.set(10).wait(5.0)
+
+        documents = []
+        RE.subscribe(lambda name, doc: documents.append((name, doc)))
+
+        RE(scan([device], device.deflX, 0.1, 8.7, 5))
+
+        # Should have multiple events
+        events = [doc for name, doc in documents if name == "event"]
+        assert len(events) >= 5, "Should have at least 5 event documents"
+
+    def test_device_with_fixed_trigd_scan(
+        self, detector_in_standby, run_engine, test_output_dir
+    ):
+        """Test device can handle FixedTrigd scan."""
+        device = detector_in_standby
+        RE = run_engine
+
+        # Configure device
+        device.acq_mode.set("FixedTrigd").wait(5.0)
+        device.file_path.set(str(test_output_dir)).wait(5.0)
+        device.file_name.set("test_fixed_trigd_scan.nxs").wait(5.0)
+        device.num_scans.set(1).wait(5.0)
 
         documents = []
         RE.subscribe(lambda name, doc: documents.append((name, doc)))

@@ -70,10 +70,26 @@ class DetectorTCPClient:
         self._data_reader_running: bool = False
         self._current_cmd_id = 0
 
+        # Live data monitoring infrastructure
+        self._live_reader_task: asyncio.Task | None = None
+        self._live_queue: asyncio.Queue = asyncio.Queue(
+            maxsize=1
+        )  # Only store the latest frame
+        self._live_reader_running: bool = False
+
         # Auto-reconnect infrastructure
         self._reconnect_task: asyncio.Task | None = None
         self._reconnect_event: asyncio.Event = asyncio.Event()
         self._shutdown_event: asyncio.Event = asyncio.Event()
+
+        # Statistics infrastructure
+        self._stats_task: asyncio.Task | None = None
+        self._json_bytes_received: int = 0
+        self._data_bytes_received: int = 0
+        self._live_bytes_received: int = 0
+        self._json_messages_processed: int = 0
+        self._data_frames_processed: int = 0
+        self._live_frames_processed: int = 0
 
     @property
     def _cmd_id(self) -> int:
@@ -89,6 +105,13 @@ class DetectorTCPClient:
     async def get_data(self) -> dict[str, Any] | None:
         """Get data from the data queue."""
         return await self._data_queue.get()
+
+    async def get_live_data(self) -> dict[str, Any] | None:
+        """Get live data from the live queue (non-blocking)."""
+        try:
+            return self._live_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            return None
 
     async def connect(self) -> None:
         """Connect to all three TCP ports using asyncio streams."""
@@ -120,9 +143,16 @@ class DetectorTCPClient:
             self._data_reader_running = True
             self._data_reader_task = asyncio.create_task(self._data_reader_loop())
 
+            # Start background live data reader
+            self._live_reader_running = True
+            self._live_reader_task = asyncio.create_task(self._live_reader_loop())
+
             # Start auto-reconnect task if enabled
             if self.auto_reconnect and not self._reconnect_task:
                 self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+
+            # Start statistics monitoring task
+            self._stats_task = asyncio.create_task(self._stats_monitor_loop())
 
             logger.info("Connected to detector TCP interface using asyncio streams")
         except Exception as e:
@@ -208,6 +238,13 @@ class DetectorTCPClient:
             self._data_reader_running = True
             self._data_reader_task = asyncio.create_task(self._data_reader_loop())
 
+            # Start background live data reader
+            self._live_reader_running = True
+            self._live_reader_task = asyncio.create_task(self._live_reader_loop())
+
+            # Start statistics monitoring task
+            self._stats_task = asyncio.create_task(self._stats_monitor_loop())
+
         except Exception as e:
             await self._cleanup_connections()
             self.connected = False
@@ -266,6 +303,25 @@ class DetectorTCPClient:
             except asyncio.CancelledError:
                 pass
             self._data_reader_task = None
+
+        # Stop live data reader
+        self._live_reader_running = False
+        if self._live_reader_task:
+            self._live_reader_task.cancel()
+            try:
+                await self._live_reader_task
+            except asyncio.CancelledError:
+                pass
+            self._live_reader_task = None
+
+        # Stop statistics monitor
+        if self._stats_task:
+            self._stats_task.cancel()
+            try:
+                await self._stats_task
+            except asyncio.CancelledError:
+                pass
+            self._stats_task = None
 
         # Clean up pending responses
         for future in self._pending_responses.values():
@@ -360,6 +416,103 @@ class DetectorTCPClient:
 
         logger.info("Data reader loop stopped")
 
+    async def _live_reader_loop(self) -> None:
+        """Background task that continuously reads live data from live_port."""
+        logger.info("Starting live data reader loop")
+        while (
+            self._live_reader_running
+            and self.connected
+            and not self._shutdown_event.is_set()
+        ):
+            try:
+                if not self.live_reader:
+                    break
+
+                live_data = await self._read_live_data()
+                if live_data is None:
+                    continue
+
+                # Put live data in queue, drop oldest if full (non-blocking)
+                try:
+                    self._live_queue.put_nowait(live_data)
+                except asyncio.QueueFull:
+                    # Drop oldest data to make room for newest
+                    try:
+                        self._live_queue.get_nowait()
+                        self._live_queue.put_nowait(live_data)
+                    except asyncio.QueueEmpty:
+                        pass  # Queue was emptied by another task
+
+            except asyncio.CancelledError:
+                logger.info("Live data reader cancelled")
+                break
+            except (
+                ConnectionResetError,
+                ConnectionAbortedError,
+                BrokenPipeError,
+                OSError,
+            ) as e:
+                logger.warning(f"Connection error in live data reader: {e}")
+                self._trigger_reconnect()
+                break
+            except Exception as e:
+                logger.error(f"Error in live data reader loop: {e}")
+                await asyncio.sleep(0.1)  # Brief delay before retrying
+
+        logger.info("Live data reader loop stopped")
+
+    async def _stats_monitor_loop(self) -> None:
+        """Background task that prints statistics every 30 seconds."""
+        logger.info("Starting statistics monitor loop")
+        while not self._shutdown_event.is_set():
+            try:
+                await asyncio.sleep(30.0)
+
+                # Calculate totals
+                total_bytes = (
+                    self._json_bytes_received
+                    + self._data_bytes_received
+                    + self._live_bytes_received
+                )
+                total_messages = (
+                    self._json_messages_processed
+                    + self._data_frames_processed
+                    + self._live_frames_processed
+                )
+
+                # Print statistics
+                print("=== TCP Server Statistics (last 30s) ===")
+                print(f"Total bytes received: {total_bytes:,} bytes")
+                print(f"  JSON port: {self._json_bytes_received:,} bytes")
+                print(f"  Data port: {self._data_bytes_received:,} bytes")
+                print(f"  Live port: {self._live_bytes_received:,} bytes")
+                print(f"Total messages/frames: {total_messages}")
+                print(f"  JSON messages: {self._json_messages_processed}")
+                print(f"  Data frames: {self._data_frames_processed}")
+                print(f"  Live frames: {self._live_frames_processed}")
+                print(
+                    f"Queue sizes - Data: {self._data_queue.qsize()}, Live: {self._live_queue.qsize()}"
+                )
+                print(f"Avg throughput: {total_bytes / 30.0:.1f} bytes/sec")
+                print()
+
+                # Reset counters for next interval
+                self._json_bytes_received = 0
+                self._data_bytes_received = 0
+                self._live_bytes_received = 0
+                self._json_messages_processed = 0
+                self._data_frames_processed = 0
+                self._live_frames_processed = 0
+
+            except asyncio.CancelledError:
+                logger.info("Statistics monitor cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in statistics monitor: {e}")
+                await asyncio.sleep(1.0)
+
+        logger.info("Statistics monitor loop stopped")
+
     async def _read_response(self) -> dict[str, Any] | None:
         """Read response from JSON stream using asyncio streams."""
         if not self.json_reader:
@@ -368,6 +521,10 @@ class DetectorTCPClient:
         try:
             # Blocking read until \r\n terminator
             response_data = await self.json_reader.readuntil(b"\r\n")
+
+            # Update statistics
+            self._json_bytes_received += len(response_data)
+            self._json_messages_processed += 1
 
             # Remove the terminator and decode
             response_bytes = response_data.rstrip(b"\r\n")
@@ -378,7 +535,7 @@ class DetectorTCPClient:
                 return parsed_response
             except (UnicodeDecodeError, json.JSONDecodeError) as e:
                 logger.error(
-                    f"Failed to parse response: {e}, response: {response_bytes[:100]}..."
+                    f"Failed to parse response: {e}, response: {response_bytes}"
                 )
                 return None
 
@@ -495,6 +652,9 @@ class DetectorTCPClient:
             # Read 40-byte header
             header_data = await self.data_reader.readexactly(40)
 
+            # Update statistics for header
+            self._data_bytes_received += len(header_data)
+
             # Parse header
             marker = int.from_bytes(header_data[0:4], byteorder="big", signed=False)
 
@@ -546,6 +706,9 @@ class DetectorTCPClient:
                 if channel_1_data is None:
                     return None
 
+                # Update statistics for channel 1 data
+                self._data_bytes_received += len(channel_1_data)
+
                 # Use numpy to directly interpret the binary data (much faster than Python loops)
                 pixel_data_1 = np.frombuffer(
                     channel_1_data, dtype="<u4"
@@ -562,6 +725,9 @@ class DetectorTCPClient:
                 if channel_2_data is None:
                     return None
 
+                # Update statistics for channel 2 data
+                self._data_bytes_received += len(channel_2_data)
+
                 # Use numpy to directly interpret the binary data (much faster than Python loops)
                 pixel_data_2 = np.frombuffer(
                     channel_2_data, dtype="<u4"
@@ -570,6 +736,9 @@ class DetectorTCPClient:
                 result["channel_2_sum"] = int(pixel_data_2.sum())
 
                 logger.info(f"Channel 2 sum: {result['channel_2_sum']}")
+
+            # Update frame count statistics
+            self._data_frames_processed += 1
 
             return result
 
@@ -629,6 +798,90 @@ class DetectorTCPClient:
             return None
         except Exception as e:
             logger.error(f"Error reading channel data: {e}")
+            return None
+
+    async def _read_live_data(self) -> dict[str, Any] | None:
+        """Read live data from detector live stream.
+
+        Returns dict with parsed header info and pixel data summary, or None on error/timeout.
+        Uses the 16-byte header format as documented in README.md Live Socket schema.
+        """
+        if not self.connected or not self.live_reader:
+            return None
+
+        try:
+            # Read 16-byte header according to Live Socket schema
+            header_data = await self.live_reader.readexactly(20)
+
+            # Update statistics for header
+            self._live_bytes_received += len(header_data)
+
+            # Parse header according to documented schema:
+            # Marker (0-4): 4 bytes - Message start marker
+            # Index (4-8): 4 bytes - Current frame number
+            # Width (8-12): 4 bytes - Width of image
+            # Height (12-16): 4 bytes - Height of image
+            # Length (16-20): 4 bytes - Length of image in bytes
+            marker = int.from_bytes(header_data[0:4], byteorder="big", signed=False)
+            if marker != 0xF0F0:
+                logger.error(f"Invalid marker={marker:#x}, expected 0xf0f0")
+                return None
+            index = int.from_bytes(header_data[4:8], byteorder="big", signed=True)
+            width = int.from_bytes(header_data[8:12], byteorder="big", signed=False)
+            height = int.from_bytes(header_data[12:16], byteorder="big", signed=False)
+            length = int.from_bytes(header_data[16:20], byteorder="big", signed=False)
+
+            result = {
+                "marker": marker,
+                "index": index,
+                "width": width,
+                "height": height,
+                "length": length,
+                "max_count": 0,
+                "timestamp": time.time(),
+            }
+
+            # Read pixel data if length > 0
+            if length > 0:
+                pixel_data_bytes = await self.live_reader.readexactly(length)
+
+                # Update statistics for pixel data
+                self._live_bytes_received += len(pixel_data_bytes)
+
+                # Convert to uint32 numpy array (same format as data port)
+                pixel_data = np.frombuffer(
+                    pixel_data_bytes, dtype=">u4"
+                )  # big-endian uint32
+
+                # Calculate statistics for monitoring purposes
+                result["max_count"] = int(np.max(pixel_data))
+
+                # Don't store the full pixel array to save memory - just the statistics
+                # Full arrays are available via the data port when needed
+
+            # Update frame count statistics
+            self._live_frames_processed += 1
+
+            return result
+
+        except asyncio.TimeoutError:
+            logger.error("Timeout reading live data header")
+            return None
+        except asyncio.IncompleteReadError:
+            logger.error("Connection closed while reading live data")
+            self._trigger_reconnect()
+            return None
+        except (
+            ConnectionResetError,
+            ConnectionAbortedError,
+            BrokenPipeError,
+            OSError,
+        ) as e:
+            logger.warning(f"Connection error reading live data: {e}")
+            self._trigger_reconnect()
+            return None
+        except Exception as e:
+            logger.error(f"Error reading live data: {e}")
             return None
 
     async def get_all_parameters(self) -> dict[str, Any] | None:
@@ -875,13 +1128,29 @@ class DetectorIOC(PVGroup):
         value="No", name="DET:OFF", enum_strings=("No", "Yes"), dtype=bool
     )
     """Turn off the detector when this is set to 'On'"""
-    max_count = pvproperty(value=0, name="DET:MAX_COUNT", dtype=int)
-    """Maximum value of a single pixel of the detector"""
-    max_count_threshold = pvproperty(value=155, name="DET:MAX_COUNT_THRESH", dtype=int)
+
+    # Live data monitoring
+    live_monitoring = pvproperty(
+        value="Off", name="LIVE:MONITORING", enum_strings=("Off", "On"), dtype=bool
+    )
+    """Enable/disable live data monitoring from live_port"""
+    live_max_count = pvproperty(
+        value=0, name="LIVE:MAX_COUNT", read_only=True, dtype=int
+    )
+    """Current maximum pixel count from live data stream"""
+    live_update_rate = pvproperty(
+        value=10.0, name="LIVE:UPDATE_RATE", dtype=float, precision=1
+    )
+    """Live data PV update rate in Hz (0.1 to 50.0)"""
+    live_last_update = pvproperty(
+        value="", name="LIVE:LAST_UPDATE", read_only=True, dtype=ChannelType.STRING
+    )
+    """Timestamp of last live data update"""
+    max_count_threshold = pvproperty(value=150, name="LIVE:MAX_COUNT_THRESH", dtype=int)
     """Threshold for the maximum value of a single pixel of the detector"""
     max_count_exceeded = pvproperty(
         value="No",
-        name="DET:MAX_COUNT_EXCEEDED",
+        name="LIVE:MAX_COUNT_EXCEEDED",
         enum_strings=("No", "Yes"),
         dtype=bool,
     )
@@ -953,11 +1222,13 @@ class DetectorIOC(PVGroup):
         name="LENS_MODE",
         dtype=ChannelType.ENUM,
         enum_strings=(
+            "L4Ang0d6",
             "L4Ang0d8",
             "L4Ang1d6",
             "L4Ang3d9",
             "L4MAng0d7",
             "L4MSpat5",
+            "L4Spat5",
         ),
     )
     num_scans = pvproperty(put=_param_write, name="NUM_SCANS", dtype=int)
@@ -1040,6 +1311,7 @@ class DetectorIOC(PVGroup):
         self._state_lock = asyncio.Lock()
         self._acquire_lock = asyncio.Lock()
         self._file_capture_lock = asyncio.Lock()
+        self._live_monitor_lock = asyncio.Lock()
 
         # Convenience mappings for parameter names to PVs and vice versa
         self._pvs_to_param_names: dict[PvpropertyData, str] = {
@@ -1113,8 +1385,8 @@ class DetectorIOC(PVGroup):
 
         data = await self.tcp_client.get_data()
         if data:
-            # FIXME: May have to use the live data port to get the max count more frequently
-            # await self.max_count.write(np.max(data["channel_2_data"]))
+            # Note: max_count is now monitored via live data port when live monitoring is enabled
+            # This provides much more frequent monitoring for emergency detection
             data["deflX"] = response["values"][0]["value"]
             return data
         else:
@@ -1220,7 +1492,7 @@ class DetectorIOC(PVGroup):
     @state.scan(period=0.05)  # 50ms scan - state changes can be frequent in fixed mode
     async def state(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for state changes."""
-        if self.tcp_client.connected:
+        if self.acquisition_status.value == 1 and self.tcp_client.connected:
             response = await self.tcp_client.get_parameter(
                 self._pvs_to_param_names[self.state]
             )
@@ -1362,20 +1634,6 @@ class DetectorIOC(PVGroup):
                 return False
         return value
 
-    @max_count.putter
-    async def max_count(self, instance: Any, value: int) -> int:
-        """Set the maximum count of the detector."""
-        if value > self.max_count_threshold.value:
-            logger.warning(
-                f"Maximum count threshold exceeded: {value} > {self.max_count_threshold.value}. Turning off detector!"
-            )
-            if self.acquire.value == 1:
-                await self.acquire.write(0)
-            if not self.det_off.value:
-                await self.det_off.write(True)
-            await self.max_count_exceeded.write("Yes")
-        return value
-
     @max_count_exceeded.putter
     async def max_count_exceeded(self, instance: Any, value: bool) -> bool:
         """Reset/acknowledge the max_count_exceeded flag."""
@@ -1384,6 +1642,118 @@ class DetectorIOC(PVGroup):
             logger.info("Max count exceeded flag acknowledged and reset by operator")
             return "No"
         return value
+
+    @live_monitoring.putter
+    async def live_monitoring(self, instance: Any, value: bool) -> bool:
+        """Enable or disable live data monitoring."""
+        async with self._live_monitor_lock:
+            if instance.value == value:
+                return value
+
+            if value == "On":
+                # Start live monitoring
+                if not self.tcp_client.connected:
+                    return "Off"
+
+                self._live_monitor_task = asyncio.create_task(self._live_monitor_loop())
+                logger.info("Live data monitoring started")
+            else:
+                # Stop live monitoring
+                if self._live_monitor_task:
+                    self._live_monitor_task.cancel()
+                    try:
+                        await self._live_monitor_task
+                    except asyncio.CancelledError:
+                        pass
+                    self._live_monitor_task = None
+
+                logger.info("Live data monitoring stopped")
+
+            return value
+
+    async def _live_monitor_loop(self) -> None:
+        """Background task for live data monitoring and emergency detection."""
+        logger.info("Starting live data monitoring loop")
+
+        # Validate update rate
+        update_rate = self.live_update_rate.value
+        update_interval = 1.0 / update_rate
+
+        try:
+            while self.live_monitoring.value == "On":
+                try:
+                    # Get live data from TCP client
+                    live_data = await self.tcp_client.get_live_data()
+
+                    if live_data:
+                        current_time = time.strftime("%Y-%m-%d %H:%M:%S")
+                        max_count = live_data["max_count"]
+
+                        # Update PVs with live data
+                        await asyncio.gather(
+                            self.live_max_count.write(max_count),
+                            self.live_last_update.write(current_time),
+                        )
+
+                        # Emergency detection: check if max_count exceeds threshold
+                        if max_count > self.max_count_threshold.value:
+                            logger.critical(
+                                f"EMERGENCY: Live max count {max_count} exceeds threshold {self.max_count_threshold.value}!"
+                            )
+                            await self._emergency_shutdown(max_count)
+                            break
+
+                    # Sleep for the configured update interval
+                    await asyncio.sleep(update_interval)
+
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.error(f"Error in live monitor loop: {e}")
+                    await self.live_status.write(f"Error: {str(e)}")
+                    await asyncio.sleep(1.0)  # Wait before retrying
+
+        except asyncio.CancelledError:
+            pass
+
+        logger.info("Live data monitoring loop stopped")
+
+    async def _emergency_shutdown(self, max_count: int) -> None:
+        """Emergency shutdown procedure when max_count threshold is exceeded."""
+        logger.critical(f"Executing emergency shutdown: max_count={max_count}")
+
+        try:
+            # Set emergency status
+            await asyncio.gather(
+                self.max_count_exceeded.write("Yes"),
+            )
+
+            # Stop acquisition if running
+            if self.acquire.value == 1:
+                logger.critical("Emergency: Stopping acquisition")
+                await self.acquire.write(0)
+
+            # Turn off detector
+            if self.det_off.value == "No":
+                logger.critical("Emergency: Turning off detector")
+                await self.det_off.write("Yes")
+
+            # Stop live monitoring
+            await self.live_monitoring.write("Off")
+
+        except Exception as e:
+            logger.error(f"Error during emergency shutdown: {e}")
+
+    @live_update_rate.putter
+    async def live_update_rate(self, instance: Any, value: float) -> float:
+        """Set the live data update rate, with bounds checking."""
+        # Clamp to reasonable range
+        clamped_value = max(0.1, min(50.0, value))
+        if clamped_value != value:
+            logger.warning(
+                f"Live update rate clamped from {value} to {clamped_value} Hz"
+            )
+        return clamped_value
 
     async def cleanup(self) -> None:
         """Clean up background tasks and connections."""

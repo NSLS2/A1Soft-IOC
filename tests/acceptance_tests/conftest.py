@@ -1,8 +1,19 @@
 import pytest
 import time
 import asyncio
+import os
+from pathlib import Path
 
 from a1soft.device import SpectrumAnalyzer
+
+
+def pytest_addoption(parser):
+    """Add command line options for pytest."""
+    parser.addoption(
+        "--prefix",
+        default="A1Soft:",
+        help="EPICS PV prefix for the IOC (default: A1Soft:)",
+    )
 
 
 @pytest.fixture(scope="session")
@@ -13,14 +24,15 @@ def event_loop():
     loop.close()
 
 
-@pytest.fixture(scope="session")
-def analyzer_device():
+@pytest.fixture(scope="function")
+def analyzer_device(request):
     """Fixture providing a SpectrumAnalyzer device instance.
 
-    This assumes the IOC is running with prefix 'A1Soft:' on the local machine.
-    Modify the prefix if your IOC uses a different prefix.
+    This assumes the IOC is running on the local machine.
+    Use --prefix command line option to specify a different EPICS PV prefix.
     """
-    device = SpectrumAnalyzer(prefix="A1Soft:", name="analyzer")
+    prefix = request.config.getoption("--prefix")
+    device = SpectrumAnalyzer(prefix=prefix, name="analyzer")
 
     # Wait for initial connection
     device.wait_for_connection(timeout=10.0)
@@ -42,10 +54,13 @@ def analyzer_device():
 
 
 @pytest.fixture
-def test_output_dir(tmp_path):
-    """Fixture providing a temporary directory for test outputs."""
-    test_dir = tmp_path / "test_data"
-    test_dir.mkdir(exist_ok=True)
+def test_output_dir():
+    """Fixture providing an OS-specific temporary directory for test outputs."""
+    # Hardcoded Windows temporary path
+    # Currently the IOC always runs on Windows
+    temp_base = Path(os.environ.get("TEMP", r"C:\Windows\Temp"))
+    test_dir = temp_base / "A1Soft_IOC_Tests"
+    test_dir.mkdir(exist_ok=True, parents=True)
     return test_dir
 
 
@@ -66,9 +81,13 @@ def detector_in_standby(analyzer_device):
     if device.file_capture.get(as_string=True) == "On":
         device.file_capture.set("Off").wait(5.0)
 
+    # Ensure live monitoring is off
+    if device.live_monitoring.get(as_string=True) == "On":
+        device.live_monitoring.set("Off").wait(5.0)
+
     # Ensure safety limit is reset
-    if device.det_max_count_exceeded.get():
-        device.det_max_count_exceeded.set(False).wait(5.0)
+    if device.live_max_count_exceeded.get():
+        device.live_max_count_exceeded.set(False).wait(5.0)
 
     # Default mode is swept
     device.acq_mode.set("Swept").wait(5.0)
@@ -85,7 +104,7 @@ def wait_for_state(device, expected_state, timeout=10.0):
             raise TimeoutError(
                 f"Timeout waiting for state {expected_state}, current: {device.state.get()}"
             )
-        time.sleep(0.1)
+        time.sleep(1.0)
 
 
 def wait_for_condition(condition_func, timeout=10.0, poll_interval=0.1):

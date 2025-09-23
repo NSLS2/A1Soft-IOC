@@ -98,11 +98,9 @@ Here are a list of the types of commands able to be processed by the TCP server.
 |------|-------------|
 | START | Starts the acquisition |
 | STOP | Stops the acquisition |
-| DET_OFF | <unknown> |
-| MONITOR_ON | <unknown> |
-| MONITOR_OFF | <unknown> |
+| DET_OFF | Turns the detector off |
 | GET_IMAGE | Requests an image on the data socket |
-| GET_ACQ_STATS | <unknown> |
+| GET_ACQ_STATS | Gets the acquisition state and index |
 
 
 ## Data Socket
@@ -129,6 +127,24 @@ In Fixed acquisition mode, you can only capture data at a maximum of ~12.5 frame
 
 
 This is not a problem in Swept mode since the acquisition is much slower. Although, in this mode, the first channel data will fill-in from the leftmost column to the rightmost column and timing the command for the full image is impossible (to my knowledge). Therefore, we compute the differences in the second channel images to recover the first channel image, in practice.
+
+## Live Socket
+
+There is also a live data socket for streaming data from the detector. This is only available while acquiring.
+
+The "Live Data" must be configured to be on and the monitor must be enabled. There is no way to control this from
+the TCP server, so you must manually configure this in LabView.
+
+The schema is
+
+| Name | Byte offset | Description |
+|------|-------------|-------------|
+| Marker | 0 - 2 | Message start marker (delimits frames) |
+| Index | 2 - 4 | The current frame number requested since acquisition start |
+| Width | 4 - 8 | The width of the image |
+| Height | 8 - 12 | The height of the image |
+| Length | 12 - 16 | The length of the image in bytes |
+| Image | 16 - (16 + Length) | The uint32 byte array for the first channel image, representing the current image being displayed |
 
 # Process Variables (PVs)
 

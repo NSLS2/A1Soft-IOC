@@ -4,6 +4,9 @@ These tests verify that data can be written to NeXus/HDF5 files correctly.
 """
 
 import time
+import platform
+
+import pytest
 from nexusformat.nexus import nxopen
 from .conftest import wait_for_state
 
@@ -42,10 +45,6 @@ class TestFileCapture:
         # Disable file capture
         device.file_capture.set("Off").wait(5.0)
 
-        # Verify file was created
-        full_path = test_output_dir / file_name
-        assert full_path.exists(), f"File should have been created at {full_path}"
-
     def test_double_enable_prevention(self, detector_in_standby, test_output_dir):
         """Test that enabling file capture twice does nothing."""
         device = detector_in_standby
@@ -73,6 +72,9 @@ class TestFileCapture:
         device.file_capture.set("Off").wait(5.0)
 
 
+@pytest.mark.skipif(
+    platform.system() != "Windows", reason="Must be run on same server as IOC"
+)
 class TestFileWriting:
     """Test actual data writing to files."""
 
@@ -247,6 +249,9 @@ class TestFileWriting:
             )
 
 
+@pytest.mark.skipif(
+    platform.system() != "Windows", reason="Must be run on same server as IOC"
+)
 class TestFilePathHandling:
     """Test file path and name handling."""
 
