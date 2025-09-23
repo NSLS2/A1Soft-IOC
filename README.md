@@ -139,12 +139,12 @@ The schema is
 
 | Name | Byte offset | Description |
 |------|-------------|-------------|
-| Marker | 0 - 2 | Message start marker (delimits frames) |
-| Index | 2 - 4 | The current frame number requested since acquisition start |
-| Width | 4 - 8 | The width of the image |
-| Height | 8 - 12 | The height of the image |
-| Length | 12 - 16 | The length of the image in bytes |
-| Image | 16 - (16 + Length) | The uint32 byte array for the first channel image, representing the current image being displayed |
+| Marker | 0 - 4 | Message start marker (delimits frames) |
+| Index | 4 - 8 | The current frame number requested since acquisition start |
+| Width | 8 - 12 | The width of the image |
+| Height | 12 - 16 | The height of the image |
+| Length | 16 - 20 | The length of the image in bytes |
+| Image | 20 - (20 + Length) | The uint32 byte array for the first channel image, representing the current image being displayed |
 
 # Process Variables (PVs)
 
