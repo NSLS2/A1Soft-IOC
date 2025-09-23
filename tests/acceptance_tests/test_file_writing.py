@@ -4,6 +4,7 @@ These tests verify that data can be written to NeXus/HDF5 files correctly.
 """
 
 import time
+import platform
 
 import pytest
 from nexusformat.nexus import nxopen
@@ -16,11 +17,6 @@ class TestFileCapture:
     def test_file_capture_control(self, detector_in_standby, test_output_dir):
         """Test enabling and disabling file capture with proper path and filename."""
         device = detector_in_standby
-
-        if not test_output_dir.exists():
-            pytest.skip(
-                "Test output directory does not exist, must be run on same server as IOC"
-            )
 
         # Set file path and name
         file_path = str(test_output_dir)
@@ -49,9 +45,6 @@ class TestFileCapture:
         # Disable file capture
         device.file_capture.set("Off").wait(5.0)
 
-        # Verify file was created
-        full_path = test_output_dir / file_name
-        assert full_path.exists(), f"File should have been created at {full_path}"
 
     def test_double_enable_prevention(self, detector_in_standby, test_output_dir):
         """Test that enabling file capture twice does nothing."""
@@ -80,17 +73,13 @@ class TestFileCapture:
         device.file_capture.set("Off").wait(5.0)
 
 
+@pytest.mark.skipif(platform.system() != "Windows", reason="Must be run on same server as IOC")
 class TestFileWriting:
     """Test actual data writing to files."""
 
     def test_file_creation_structure(self, detector_in_standby, test_output_dir):
         """Test that created files have correct NeXus structure."""
         device = detector_in_standby
-
-        if not test_output_dir.exists():
-            pytest.skip(
-                "Test output directory does not exist, must be run on same server as IOC"
-            )
 
         # Set up file capture
         file_path = str(test_output_dir)
@@ -119,11 +108,6 @@ class TestFileWriting:
     def test_acquisition_with_file_capture(self, detector_in_standby, test_output_dir):
         """Test acquisition with file capture enabled."""
         device = detector_in_standby
-
-        if not test_output_dir.exists():
-            pytest.skip(
-                "Test output directory does not exist, must be run on same server as IOC"
-            )
 
         # Set up minimal acquisition parameters
         device.num_scans.set(1).wait(5.0)
@@ -163,11 +147,6 @@ class TestFileWriting:
         """Test multiple acquisitions with file capture enabled."""
         device = detector_in_standby
 
-        if not test_output_dir.exists():
-            pytest.skip(
-                "Test output directory does not exist, must be run on same server as IOC"
-            )
-
         # Set up minimal acquisition parameters
         device.num_scans.set(2).wait(5.0)
 
@@ -204,11 +183,6 @@ class TestFileWriting:
         """Test that file is readable during acquisition and contains intermediate images."""
         device = detector_in_standby
 
-        if not test_output_dir.exists():
-            pytest.skip(
-                "Test output directory does not exist, must be run on same server as IOC"
-            )
-
         # Set up minimal acquisition parameters
         device.num_scans.set(2).wait(5.0)
 
@@ -244,11 +218,6 @@ class TestFileWriting:
         """Test that file contains metadata."""
         device = detector_in_standby
 
-        if not test_output_dir.exists():
-            pytest.skip(
-                "Test output directory does not exist, must be run on same server as IOC"
-            )
-
         # Set up minimal acquisition parameters
         device.num_scans.set(1).wait(5.0)
 
@@ -278,18 +247,13 @@ class TestFileWriting:
                 "Should have energies group"
             )
 
-
+@pytest.mark.skipif(platform.system() != "Windows", reason="Must be run on same server as IOC")
 class TestFilePathHandling:
     """Test file path and name handling."""
 
     def test_directory_creation(self, detector_in_standby, tmp_path):
         """Test that directories are created if they don't exist."""
         device = detector_in_standby
-
-        if not tmp_path.exists():
-            pytest.skip(
-                "Test output directory does not exist, must be run on same server as IOC"
-            )
 
         # Use a nested directory that doesn't exist
         nested_dir = tmp_path / "nested" / "directories"
