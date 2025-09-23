@@ -155,7 +155,7 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
             )
 
         self._status = Status()
-        self.acquire.set(1).wait(5.0)
+        self.acquire.put(1)
         return self._status
 
     def describe(self) -> dict[str, DataKey]:
