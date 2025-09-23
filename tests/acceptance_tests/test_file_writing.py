@@ -5,6 +5,7 @@ These tests verify that data can be written to NeXus/HDF5 files correctly.
 
 import time
 import platform
+import numpy as np
 
 import pytest
 from nexusformat.nexus import nxopen
@@ -248,6 +249,46 @@ class TestFileWriting:
                 "Should have energies group"
             )
 
+    def test_file_read_speed(self, detector_in_standby, test_output_dir):
+        """Test that file can be read efficiently."""
+        device = detector_in_standby
+
+        # Set up file capture
+        file_path = str(test_output_dir)
+        file_name = "test_read_speed.nxs"
+        full_path = test_output_dir / file_name
+
+        device.acq_mode.set("Fixed").wait(5.0)
+        device.file_path.set(file_path).wait(5.0)
+        device.file_name.set(file_name).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
+        # 1 frame every 200ms
+        device.frames.set(200).wait(5.0)
+
+        # Acquire 1 frame
+        device.acquire.set(1).wait(5.0)
+        wait_for_state(device, "RUNNING", timeout=10.0)
+        wait_for_state(device, "STANDBY", timeout=60.0)
+
+        device.file_capture.set("Off").wait(5.0)
+
+        # Read the file
+        times = []
+        for _ in range(100):
+            start_time = time.time()
+            with nxopen(full_path, "r") as f:
+                data = f["entry/instrument/analyzer/data"].nxvalue
+                angles = f["entry/instrument/analyzer/angles"].nxvalue
+                energies = f["entry/instrument/analyzer/energies"].nxvalue
+                deflector_x = f["entry/instrument/analyzer/deflector_x"].nxvalue
+                assert data.shape[0] == 1, "Should have 1 image"
+                assert angles.shape[0] == 1, "Should have 1 angle"
+                assert energies.shape[0] == 1, "Should have 1 energy"
+                assert deflector_x.shape[0] == 1, "Should have 1 deflector_x"
+            end_time = time.time()
+            times.append(end_time - start_time)
+
+        assert np.mean(times) < 0.1, "File should be read in less than 0.1 seconds"
 
 @pytest.mark.skipif(
     platform.system() != "Windows", reason="Must be run on same server as IOC"
