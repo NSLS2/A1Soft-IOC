@@ -6,6 +6,8 @@ These tests verify that acquisition can be started, stopped, and monitored corre
 import time
 from .conftest import wait_for_state
 
+from ophyd import UNSET_VALUE
+
 
 class TestAcquisitionControl:
     """Test basic acquisition start/stop functionality."""
@@ -120,6 +122,8 @@ class TestAcquisitionStates:
             wait_for_state(device, "STANDBY", timeout=10.0)
 
             # Verify we saw the expected state transitions
+            if transitions_seen[0] == (UNSET_VALUE, "STANDBY"):
+                transitions_seen = transitions_seen[1:]
             assert transitions_seen == [
                 ("STANDBY", "RUNNING"),
                 ("RUNNING", "STANDBY"),
