@@ -15,7 +15,7 @@ def event_loop():
     loop.close()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def analyzer_device():
     """Fixture providing a SpectrumAnalyzer device instance.
 
