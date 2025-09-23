@@ -1133,7 +1133,7 @@ class DetectorIOC(PVGroup):
 
     # Live data monitoring
     live_monitoring = pvproperty(
-        value="Off", name="LIVE:MONITORING", enum_strings=("Off", "On"), dtype=bool
+        value="On", name="LIVE:MONITORING", enum_strings=("Off", "On"), dtype=bool
     )
     """Enable/disable live data monitoring from live_port"""
     live_max_count = pvproperty(
@@ -1650,10 +1650,10 @@ class DetectorIOC(PVGroup):
     @live_monitoring.putter
     async def live_monitoring(self, instance: Any, value: bool) -> bool:
         """Enable or disable live data monitoring."""
-        async with self._live_monitor_lock:
-            if instance.value == value:
-                return value
+        if instance.value == value:
+            return value
 
+        async with self._live_monitor_lock:
             if value == "On":
                 # Start live monitoring
                 if not self.tcp_client.connected:
