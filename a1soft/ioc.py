@@ -969,7 +969,6 @@ class DetectorWriter:
                             shape=(0, data["cur_height"], data["cur_width"]),
                             dtype=np.uint32,
                             maxshape=(None, data["cur_height"], data["cur_width"]),
-                            # Chunk by full images for optimal read performance
                             chunks=(1, data["cur_height"], data["cur_width"]),
                         )
                         detector["data"] = data_field
@@ -978,8 +977,6 @@ class DetectorWriter:
                             shape=(0,),
                             dtype=np.float64,
                             maxshape=(None,),
-                            # Reasonable chunk size for 1D array
-                            chunks=(1024,),
                         )
                         detector["deflector_x"] = deflx_field
                         first_pass = False
@@ -1429,7 +1426,6 @@ class DetectorIOC(PVGroup):
             ),
             name="angles",
             units="deg",
-            chunks=(2048,),
         )
         self.writer.write_field(
             "entry/instrument/analyzer",
@@ -1441,7 +1437,6 @@ class DetectorIOC(PVGroup):
             ),
             name="energies",
             units="eV",
-            chunks=(2048,),
         )
 
     @act_scans.scan(period=0.05)
