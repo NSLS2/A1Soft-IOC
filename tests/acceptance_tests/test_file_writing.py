@@ -45,7 +45,6 @@ class TestFileCapture:
         # Disable file capture
         device.file_capture.set("Off").wait(5.0)
 
-
     def test_double_enable_prevention(self, detector_in_standby, test_output_dir):
         """Test that enabling file capture twice does nothing."""
         device = detector_in_standby
@@ -73,7 +72,9 @@ class TestFileCapture:
         device.file_capture.set("Off").wait(5.0)
 
 
-@pytest.mark.skipif(platform.system() != "Windows", reason="Must be run on same server as IOC")
+@pytest.mark.skipif(
+    platform.system() != "Windows", reason="Must be run on same server as IOC"
+)
 class TestFileWriting:
     """Test actual data writing to files."""
 
@@ -247,7 +248,10 @@ class TestFileWriting:
                 "Should have energies group"
             )
 
-@pytest.mark.skipif(platform.system() != "Windows", reason="Must be run on same server as IOC")
+
+@pytest.mark.skipif(
+    platform.system() != "Windows", reason="Must be run on same server as IOC"
+)
 class TestFilePathHandling:
     """Test file path and name handling."""
 
