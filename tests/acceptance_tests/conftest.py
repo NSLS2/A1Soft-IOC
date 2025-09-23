@@ -89,6 +89,9 @@ def detector_in_standby(analyzer_device):
     if device.live_max_count_exceeded.get():
         device.live_max_count_exceeded.set(False).wait(5.0)
 
+    # Ensure safety limit is set to a high value so it never triggers
+    device.live_max_count_threshold.set(1000).wait(5.0)
+
     # Default mode is swept
     device.acq_mode.set("Swept").wait(5.0)
     device.num_steps.set(10).wait(5.0)
