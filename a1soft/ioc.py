@@ -851,8 +851,8 @@ class DetectorTCPClient:
 
                 # Convert to uint32 numpy array (same format as data port)
                 pixel_data = np.frombuffer(
-                    pixel_data_bytes, dtype=">u4"
-                )  # big-endian uint32
+                    pixel_data_bytes, dtype="<u4"
+                )  # little-endian uint32
 
                 # Calculate statistics for monitoring purposes
                 result["max_count"] = int(np.max(pixel_data))
