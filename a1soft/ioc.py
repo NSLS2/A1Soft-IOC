@@ -842,6 +842,11 @@ class DetectorTCPClient:
                 "timestamp": time.time(),
             }
 
+            logger.info(
+                f"Live header - index: {index}, "
+                f"dimensions: {height}x{width}, length: {length}"
+            )
+
             # Read pixel data if length > 0
             if length > 0:
                 pixel_data_bytes = await self.live_reader.readexactly(length)
@@ -853,6 +858,7 @@ class DetectorTCPClient:
                 pixel_data = np.frombuffer(
                     pixel_data_bytes, dtype="<u4"
                 )  # little-endian uint32
+                logger.info(f"Pixel data:\n{pixel_data}\nMax count: {np.max(pixel_data)}")
 
                 # Calculate statistics for monitoring purposes
                 result["max_count"] = int(np.max(pixel_data))
