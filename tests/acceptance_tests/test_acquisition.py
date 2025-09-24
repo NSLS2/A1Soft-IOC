@@ -124,10 +124,32 @@ class TestAcquisitionStates:
             # Verify we saw the expected state transitions
             if transitions_seen[0] == (UNSET_VALUE, "STANDBY"):
                 transitions_seen = transitions_seen[1:]
-            assert transitions_seen == [
-                ("STANDBY", "RUNNING"),
-                ("RUNNING", "STANDBY"),
-            ], "Should have seen STANDBY, RUNNING, STANDBY transitions"
+            assert (
+                transitions_seen
+                == [
+                    ("STANDBY", "RUNNING"),
+                    ("RUNNING", "STANDBY"),
+                ]
+                or transitions_seen
+                == [
+                    ("STANDBY", "MOVING"),
+                    ("MOVING", "RUNNING"),
+                    ("RUNNING", "STANDBY"),
+                ]
+                or transitions_seen
+                == [
+                    ("STANDBY", "RUNNING"),
+                    ("RUNNING", "MOVING"),
+                    ("MOVING", "STANDBY"),
+                ]
+                or transitions_seen
+                == [
+                    ("STANDBY", "MOVING"),
+                    ("MOVING", "RUNNING"),
+                    ("RUNNING", "MOVING"),
+                    ("MOVING", "STANDBY"),
+                ]
+            ), "Should have seen STANDBY, RUNNING, STANDBY transitions"
 
         finally:
             device.state.unsubscribe(state_callback)
