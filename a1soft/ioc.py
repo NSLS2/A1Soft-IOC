@@ -257,33 +257,7 @@ class DetectorTCPClient:
             self._reconnect_event.set()
 
     async def _cleanup_connections(self) -> None:
-        """Helper to close all stream connections."""
-        for writer in [self.json_writer, self.data_writer, self.live_writer]:
-            if writer:
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except Exception as e:
-                    logger.debug(f"Error closing writer: {e}")
-
-        self.json_reader = self.json_writer = None
-        self.data_reader = self.data_writer = None
-        self.live_reader = self.live_writer = None
-
-    async def disconnect(self) -> None:
-        """Disconnect from all streams."""
-        # Signal shutdown to prevent reconnection
-        self._shutdown_event.set()
-
-        # Stop reconnect task
-        if self._reconnect_task:
-            self._reconnect_task.cancel()
-            try:
-                await self._reconnect_task
-            except asyncio.CancelledError:
-                pass
-            self._reconnect_task = None
-
+        """Helper to close all stream connections and background tasks."""
         # Stop response reader
         self._response_reader_running = False
         if self._response_reader_task:
@@ -323,13 +297,40 @@ class DetectorTCPClient:
                 pass
             self._stats_task = None
 
+        # Close stream connections
+        for writer in [self.json_writer, self.data_writer, self.live_writer]:
+            if writer:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception as e:
+                    logger.debug(f"Error closing writer: {e}")
+
+        self.json_reader = self.json_writer = None
+        self.data_reader = self.data_writer = None
+        self.live_reader = self.live_writer = None
+
+    async def disconnect(self) -> None:
+        """Disconnect from all streams."""
+        # Signal shutdown to prevent reconnection
+        self._shutdown_event.set()
+
+        # Stop reconnect task
+        if self._reconnect_task:
+            self._reconnect_task.cancel()
+            try:
+                await self._reconnect_task
+            except asyncio.CancelledError:
+                pass
+            self._reconnect_task = None
+
         # Clean up pending responses
         for future in self._pending_responses.values():
             if not future.done():
                 future.cancel()
         self._pending_responses.clear()
 
-        # Close all connections
+        # Close all connections and background tasks
         await self._cleanup_connections()
         self.connected = False
 
@@ -850,8 +851,8 @@ class DetectorTCPClient:
 
                 # Convert to uint32 numpy array (same format as data port)
                 pixel_data = np.frombuffer(
-                    pixel_data_bytes, dtype=">u4"
-                )  # big-endian uint32
+                    pixel_data_bytes, dtype="<u4"
+                )  # little-endian uint32
 
                 # Calculate statistics for monitoring purposes
                 result["max_count"] = int(np.max(pixel_data))
