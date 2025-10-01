@@ -1684,7 +1684,7 @@ class DetectorIOC(PVGroup):
         if value < 1:
             raise ValueError("Window size must be at least 1")
         async with self._count_queue_lock:
-            self._count_queue = deque(maxlen=value)
+            self._count_queue = deque(maxlen=int(value))
         return value
 
     @live_monitoring.putter
@@ -1719,13 +1719,13 @@ class DetectorIOC(PVGroup):
         """Background task for live data monitoring and emergency detection."""
         logger.info("Starting live data monitoring loop")
 
-        # Queue to store the last n max counts to average over
-        # Can be changed by the operator
-        max_count_win_size = self.max_count_win_size.value
-        async with self._count_queue_lock:
-            self._count_queue = deque(maxlen=max_count_win_size)
-
         try:
+            # Queue to store the last n max counts to average over
+            # Can be changed by the operator
+            max_count_win_size = int(self.max_count_win_size.value)
+            async with self._count_queue_lock:
+                self._count_queue = deque(maxlen=max_count_win_size)
+
             while self.live_monitoring.value == "On":
                 try:
                     # Get live data from TCP client (blocking)
@@ -1744,7 +1744,8 @@ class DetectorIOC(PVGroup):
                         async with self._count_queue_lock:
                             self._count_queue.append(max_count)
                             avg_max_count = sum(self._count_queue) / len(self._count_queue)
-                        if avg_max_count > self.max_count_threshold.value:
+                            queue_is_full = len(self._count_queue) == self._count_queue.maxlen
+                        if queue_is_full and avg_max_count > self.max_count_threshold.value:
                             logger.critical(
                                 f"EMERGENCY: Live average max count {avg_max_count} over {max_count_win_size} "
                                 f"frames exceeds threshold {self.max_count_threshold.value}!"
