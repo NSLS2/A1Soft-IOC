@@ -1337,6 +1337,7 @@ class DetectorIOC(PVGroup):
         self._acquire_lock = asyncio.Lock()
         self._file_capture_lock = asyncio.Lock()
         self._live_monitor_lock = asyncio.Lock()
+        self._count_queue_lock = asyncio.Lock()
 
         # Track if metadata has been written to file or not
         self._written_metadata: bool = False
@@ -1677,6 +1678,15 @@ class DetectorIOC(PVGroup):
             return "No"
         return value
 
+    @max_count_win_size.putter
+    async def max_count_win_size(self, instance: Any, value: int) -> int:
+        """Set the window size for averaging the max count."""
+        if value < 1:
+            raise ValueError("Window size must be at least 1")
+        async with self._count_queue_lock:
+            self._count_queue = deque(maxlen=value)
+        return value
+
     @live_monitoring.putter
     async def live_monitoring(self, instance: Any, value: bool) -> bool:
         """Enable or disable live data monitoring."""
@@ -1710,8 +1720,10 @@ class DetectorIOC(PVGroup):
         logger.info("Starting live data monitoring loop")
 
         # Queue to store the last n max counts to average over
+        # Can be changed by the operator
         max_count_win_size = self.max_count_win_size.value
-        count_queue = deque(maxlen=max_count_win_size)
+        async with self._count_queue_lock:
+            self._count_queue = deque(maxlen=max_count_win_size)
 
         try:
             while self.live_monitoring.value == "On":
@@ -1728,10 +1740,10 @@ class DetectorIOC(PVGroup):
                             self.live_max_count.write(max_count),
                             self.live_last_update.write(current_time),
                         )
-                        count_queue.append(max_count)
-
                         # Emergency detection: check if max_count exceeds threshold
-                        avg_max_count = sum(count_queue) / len(count_queue)
+                        async with self._count_queue_lock:
+                            self._count_queue.append(max_count)
+                            avg_max_count = sum(self._count_queue) / len(self._count_queue)
                         if avg_max_count > self.max_count_threshold.value:
                             logger.critical(
                                 f"EMERGENCY: Live average max count {avg_max_count} over {max_count_win_size} "
