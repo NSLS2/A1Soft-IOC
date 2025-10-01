@@ -1341,6 +1341,9 @@ class DetectorIOC(PVGroup):
         self._file_capture_lock = asyncio.Lock()
         self._live_monitor_lock = asyncio.Lock()
 
+        # Track if metadata has been written to file or not
+        self._written_metadata: bool = False
+
         # Convenience mappings for parameter names to PVs and vice versa
         self._pvs_to_param_names: dict[PvpropertyData, str] = {
             self.state: "state",
@@ -1435,6 +1438,7 @@ class DetectorIOC(PVGroup):
             if value == "On":
                 file_path = self.file_path.value
                 filename = self.file_name.value
+                self._written_metadata = False
                 await self.writer.open(file_path, filename)
                 await self.num_captured.write(0)
             else:
@@ -1464,6 +1468,7 @@ class DetectorIOC(PVGroup):
             name="energies",
             units="eV",
         )
+        self._written_metadata = True
 
     @act_scans.scan(period=0.05)
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
@@ -1501,6 +1506,8 @@ class DetectorIOC(PVGroup):
                                         self._get_current_frame(), timeout=0.1
                                     )
                                     await self.writer.write_image(index, data)
+                                    if not self._written_metadata:
+                                        self._write_metadata()
                                 except asyncio.TimeoutError:
                                     logger.warning(
                                         "Failed to get current frame in 100ms, skipping current frame"
@@ -1509,7 +1516,7 @@ class DetectorIOC(PVGroup):
                                 data = await self._get_current_frame()
                                 await self.writer.write_image(index, data)
                                 # Capture metadata for the first frame
-                                if index == 0:
+                                if not self._written_metadata:
                                     self._write_metadata()
                                 await self.num_captured.write(index + 1)
                                 logger.info(
