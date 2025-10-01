@@ -994,7 +994,9 @@ class DetectorWriter:
                             shape=(0, data["cur_height"], data["cur_width"]),
                             dtype=np.uint32,
                             maxshape=(None, data["cur_height"], data["cur_width"]),
-                            chunks=(1, data["cur_height"], data["cur_width"]),
+                            chunks=(64, data["cur_height"], data["cur_width"]),
+                            compression="lzf",
+                            shuffle=True,
                         )
                         detector["data"] = data_field
                         deflx_field = NXfield(
