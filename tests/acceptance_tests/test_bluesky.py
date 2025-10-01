@@ -132,7 +132,7 @@ class TestDeviceWithBluesky:
 
         device.live_max_count_avg_n.set(3).wait(5.0)
         device.live_max_count_exceeded.set(False).wait(5.0)
-        
+
         with pytest.raises((FailedStatus, WaitTimeoutError)):
             RE(count([device], num=2))
 

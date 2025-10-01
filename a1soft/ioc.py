@@ -1743,9 +1743,16 @@ class DetectorIOC(PVGroup):
                         # Emergency detection: check if max_count exceeds threshold
                         async with self._count_queue_lock:
                             self._count_queue.append(max_count)
-                            avg_max_count = sum(self._count_queue) / len(self._count_queue)
-                            queue_is_full = len(self._count_queue) == self._count_queue.maxlen
-                        if queue_is_full and avg_max_count > self.max_count_threshold.value:
+                            avg_max_count = sum(self._count_queue) / len(
+                                self._count_queue
+                            )
+                            queue_is_full = (
+                                len(self._count_queue) == self._count_queue.maxlen
+                            )
+                        if (
+                            queue_is_full
+                            and avg_max_count > self.max_count_threshold.value
+                        ):
                             logger.critical(
                                 f"EMERGENCY: Live average max count {avg_max_count} over {max_count_win_size} "
                                 f"frames exceeds threshold {self.max_count_threshold.value}!"
