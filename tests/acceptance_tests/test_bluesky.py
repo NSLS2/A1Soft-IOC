@@ -124,11 +124,15 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(5.0)
         device.file_name.set("test_safety_limits.nxs").wait(5.0)
         device.num_scans.set(1).wait(5.0)
-        device.live_monitoring.set("On").wait(5.0)
         # Set threshold to -1 to ensure that the safety limits are exceeded
         device.live_max_count_threshold.set(-1).wait(5.0)
 
-        # Should not run the second iteration
+        with pytest.raises((FailedStatus, WaitTimeoutError)):
+            RE(count([device], num=2))
+
+        device.live_max_count_avg_n.set(3).wait(5.0)
+        device.live_max_count_exceeded.set(False).wait(5.0)
+
         with pytest.raises((FailedStatus, WaitTimeoutError)):
             RE(count([device], num=2))
 

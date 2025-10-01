@@ -5,6 +5,7 @@ Exposes EPICS PVs that control acquisition, parameters, and monitoring.
 """
 
 import asyncio
+from collections import deque
 import json
 import logging
 from logging.handlers import TimedRotatingFileHandler
@@ -128,10 +129,7 @@ class DetectorTCPClient:
 
     async def get_live_data(self) -> dict[str, Any] | None:
         """Get live data from the live queue (non-blocking)."""
-        try:
-            return self._live_queue.get_nowait()
-        except asyncio.QueueEmpty:
-            return None
+        return await self._live_queue.get()
 
     async def connect(self) -> None:
         """Connect to all three TCP ports using asyncio streams."""
@@ -1167,10 +1165,6 @@ class DetectorIOC(PVGroup):
         value=0, name="LIVE:MAX_COUNT", read_only=True, dtype=int
     )
     """Current maximum pixel count from live data stream"""
-    live_update_rate = pvproperty(
-        value=10.0, name="LIVE:UPDATE_RATE", dtype=float, precision=1
-    )
-    """Live data PV update rate in Hz (0.1 to 50.0)"""
     live_last_update = pvproperty(
         value="", name="LIVE:LAST_UPDATE", read_only=True, dtype=ChannelType.STRING
     )
@@ -1184,6 +1178,8 @@ class DetectorIOC(PVGroup):
         dtype=bool,
     )
     """Indicates if the maximum count has exceeded the threshold"""
+    max_count_win_size = pvproperty(value=5, name="LIVE:MAX_COUNT_AVG_N", dtype=int)
+    """Window size for averaging the max count (i.e. average over the last n max counts)"""
 
     # File writing
     file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
@@ -1341,6 +1337,7 @@ class DetectorIOC(PVGroup):
         self._acquire_lock = asyncio.Lock()
         self._file_capture_lock = asyncio.Lock()
         self._live_monitor_lock = asyncio.Lock()
+        self._count_queue_lock = asyncio.Lock()
 
         # Track if metadata has been written to file or not
         self._written_metadata: bool = False
@@ -1681,6 +1678,15 @@ class DetectorIOC(PVGroup):
             return "No"
         return value
 
+    @max_count_win_size.putter
+    async def max_count_win_size(self, instance: Any, value: int) -> int:
+        """Set the window size for averaging the max count."""
+        if value < 1:
+            raise ValueError("Window size must be at least 1")
+        async with self._count_queue_lock:
+            self._count_queue = deque(maxlen=int(value))
+        return value
+
     @live_monitoring.putter
     async def live_monitoring(self, instance: Any, value: bool) -> bool:
         """Enable or disable live data monitoring."""
@@ -1713,14 +1719,16 @@ class DetectorIOC(PVGroup):
         """Background task for live data monitoring and emergency detection."""
         logger.info("Starting live data monitoring loop")
 
-        # Validate update rate
-        update_rate = self.live_update_rate.value
-        update_interval = 1.0 / update_rate
-
         try:
+            # Queue to store the last n max counts to average over
+            # Can be changed by the operator
+            max_count_win_size = int(self.max_count_win_size.value)
+            async with self._count_queue_lock:
+                self._count_queue = deque(maxlen=max_count_win_size)
+
             while self.live_monitoring.value == "On":
                 try:
-                    # Get live data from TCP client
+                    # Get live data from TCP client (blocking)
                     live_data = await self.tcp_client.get_live_data()
 
                     if live_data:
@@ -1732,17 +1740,25 @@ class DetectorIOC(PVGroup):
                             self.live_max_count.write(max_count),
                             self.live_last_update.write(current_time),
                         )
-
                         # Emergency detection: check if max_count exceeds threshold
-                        if max_count > self.max_count_threshold.value:
-                            logger.critical(
-                                f"EMERGENCY: Live max count {max_count} exceeds threshold {self.max_count_threshold.value}!"
+                        async with self._count_queue_lock:
+                            self._count_queue.append(max_count)
+                            avg_max_count = sum(self._count_queue) / len(
+                                self._count_queue
                             )
-                            await self._emergency_shutdown(max_count)
+                            queue_is_full = (
+                                len(self._count_queue) == self._count_queue.maxlen
+                            )
+                        if (
+                            queue_is_full
+                            and avg_max_count > self.max_count_threshold.value
+                        ):
+                            logger.critical(
+                                f"EMERGENCY: Live average max count {avg_max_count} over {max_count_win_size} "
+                                f"frames exceeds threshold {self.max_count_threshold.value}!"
+                            )
+                            await self._emergency_shutdown(avg_max_count)
                             break
-
-                    # Sleep for the configured update interval
-                    await asyncio.sleep(update_interval)
 
                 except asyncio.CancelledError:
                     break
@@ -1781,17 +1797,6 @@ class DetectorIOC(PVGroup):
 
         except Exception as e:
             logger.error(f"Error during emergency shutdown: {e}")
-
-    @live_update_rate.putter
-    async def live_update_rate(self, instance: Any, value: float) -> float:
-        """Set the live data update rate, with bounds checking."""
-        # Clamp to reasonable range
-        clamped_value = max(0.1, min(50.0, value))
-        if clamped_value != value:
-            logger.warning(
-                f"Live update rate clamped from {value} to {clamped_value} Hz"
-            )
-        return clamped_value
 
     async def cleanup(self) -> None:
         """Clean up background tasks and connections."""
