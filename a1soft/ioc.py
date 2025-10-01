@@ -512,8 +512,7 @@ class DetectorTCPClient:
                 logger.debug(
                     f"Queue sizes - Data: {self._data_queue.qsize()}, Live: {self._live_queue.qsize()}"
                 )
-                logger.debug(f"Avg throughput: {total_bytes / 30.0:.1f} bytes/sec")
-                logger.debug()
+                logger.debug(f"Avg throughput: {total_bytes / 30.0:.1f} bytes/sec\n")
 
                 # Reset counters for next interval
                 self._json_bytes_received = 0
