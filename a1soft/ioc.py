@@ -7,6 +7,7 @@ Exposes EPICS PVs that control acquisition, parameters, and monitoring.
 import asyncio
 import json
 import logging
+from logging.handlers import TimedRotatingFileHandler
 import time
 from pathlib import Path
 from textwrap import dedent
@@ -26,10 +27,27 @@ from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyD
 from caproto import ChannelType
 import numpy as np
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger(__name__)
+
+
+def _setup_logging() -> None:
+    logger.setLevel(logging.DEBUG)
+    # Create file handler for logs
+    log_dir = Path("logs/")
+    if not log_dir.exists():
+        log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "a1soft.log"
+    fh = TimedRotatingFileHandler(log_file, when="midnight", interval=1, backupCount=30)
+    fh.setLevel(logging.DEBUG)
+    # Create console handler for logs
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    fh.setFormatter(formatter)
+    ch.setFormatter(formatter)
+    logger.addHandler(fh)
+    logger.addHandler(ch)
 
 
 class DetectorTCPClient:
@@ -1780,6 +1798,7 @@ class DetectorIOC(PVGroup):
 
 
 if __name__ == "__main__":
+    _setup_logging()
     ioc_options, run_options = ioc_arg_parser(
         default_prefix="A1Soft:", desc=dedent(DetectorIOC.__doc__)
     )
