@@ -7,6 +7,7 @@ Exposes EPICS PVs that control acquisition, parameters, and monitoring.
 import asyncio
 import json
 import logging
+from logging.handlers import TimedRotatingFileHandler
 import time
 from pathlib import Path
 from textwrap import dedent
@@ -26,10 +27,29 @@ from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyD
 from caproto import ChannelType
 import numpy as np
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger(__name__)
+
+
+def _setup_logging() -> None:
+    logger.setLevel(logging.DEBUG)
+    # Create file handler for logs
+    log_dir = Path("logs/")
+    if not log_dir.exists():
+        log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "a1soft.log"
+    fh = TimedRotatingFileHandler(log_file, when="midnight", interval=1, backupCount=30)
+    fh.setLevel(logging.DEBUG)
+    # Create console handler for logs
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    fh.setFormatter(formatter)
+    ch.setFormatter(formatter)
+    logger.addHandler(fh)
+    logger.addHandler(ch)
 
 
 class DetectorTCPClient:
@@ -464,7 +484,7 @@ class DetectorTCPClient:
 
     async def _stats_monitor_loop(self) -> None:
         """Background task that prints statistics every 30 seconds."""
-        logger.info("Starting statistics monitor loop")
+        logger.debug("Starting statistics monitor loop")
         while not self._shutdown_event.is_set():
             try:
                 await asyncio.sleep(30.0)
@@ -482,20 +502,19 @@ class DetectorTCPClient:
                 )
 
                 # Print statistics
-                print("=== TCP Server Statistics (last 30s) ===")
-                print(f"Total bytes received: {total_bytes:,} bytes")
-                print(f"  JSON port: {self._json_bytes_received:,} bytes")
-                print(f"  Data port: {self._data_bytes_received:,} bytes")
-                print(f"  Live port: {self._live_bytes_received:,} bytes")
-                print(f"Total messages/frames: {total_messages}")
-                print(f"  JSON messages: {self._json_messages_processed}")
-                print(f"  Data frames: {self._data_frames_processed}")
-                print(f"  Live frames: {self._live_frames_processed}")
-                print(
+                logger.debug("=== TCP Server Statistics (last 30s) ===")
+                logger.debug(f"Total bytes received: {total_bytes:,} bytes")
+                logger.debug(f"  JSON port: {self._json_bytes_received:,} bytes")
+                logger.debug(f"  Data port: {self._data_bytes_received:,} bytes")
+                logger.debug(f"  Live port: {self._live_bytes_received:,} bytes")
+                logger.debug(f"Total messages/frames: {total_messages}")
+                logger.debug(f"  JSON messages: {self._json_messages_processed}")
+                logger.debug(f"  Data frames: {self._data_frames_processed}")
+                logger.debug(f"  Live frames: {self._live_frames_processed}")
+                logger.debug(
                     f"Queue sizes - Data: {self._data_queue.qsize()}, Live: {self._live_queue.qsize()}"
                 )
-                print(f"Avg throughput: {total_bytes / 30.0:.1f} bytes/sec")
-                print()
+                logger.debug(f"Avg throughput: {total_bytes / 30.0:.1f} bytes/sec\n")
 
                 # Reset counters for next interval
                 self._json_bytes_received = 0
@@ -506,13 +525,13 @@ class DetectorTCPClient:
                 self._live_frames_processed = 0
 
             except asyncio.CancelledError:
-                logger.info("Statistics monitor cancelled")
+                logger.debug("Statistics monitor cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in statistics monitor: {e}")
                 await asyncio.sleep(1.0)
 
-        logger.info("Statistics monitor loop stopped")
+        logger.debug("Statistics monitor loop stopped")
 
     async def _read_response(self) -> dict[str, Any] | None:
         """Read response from JSON stream using asyncio streams."""
@@ -1323,6 +1342,9 @@ class DetectorIOC(PVGroup):
         self._file_capture_lock = asyncio.Lock()
         self._live_monitor_lock = asyncio.Lock()
 
+        # Track if metadata has been written to file or not
+        self._written_metadata: bool = False
+
         # Convenience mappings for parameter names to PVs and vice versa
         self._pvs_to_param_names: dict[PvpropertyData, str] = {
             self.state: "state",
@@ -1417,6 +1439,7 @@ class DetectorIOC(PVGroup):
             if value == "On":
                 file_path = self.file_path.value
                 filename = self.file_name.value
+                self._written_metadata = False
                 await self.writer.open(file_path, filename)
                 await self.num_captured.write(0)
             else:
@@ -1446,6 +1469,7 @@ class DetectorIOC(PVGroup):
             name="energies",
             units="eV",
         )
+        self._written_metadata = True
 
     @act_scans.scan(period=0.05)
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
@@ -1483,6 +1507,8 @@ class DetectorIOC(PVGroup):
                                         self._get_current_frame(), timeout=0.1
                                     )
                                     await self.writer.write_image(index, data)
+                                    if not self._written_metadata:
+                                        self._write_metadata()
                                 except asyncio.TimeoutError:
                                     logger.warning(
                                         "Failed to get current frame in 100ms, skipping current frame"
@@ -1491,7 +1517,7 @@ class DetectorIOC(PVGroup):
                                 data = await self._get_current_frame()
                                 await self.writer.write_image(index, data)
                                 # Capture metadata for the first frame
-                                if index == 0:
+                                if not self._written_metadata:
                                     self._write_metadata()
                                 await self.num_captured.write(index + 1)
                                 logger.info(
@@ -1780,6 +1806,7 @@ class DetectorIOC(PVGroup):
 
 
 if __name__ == "__main__":
+    _setup_logging()
     ioc_options, run_options = ioc_arg_parser(
         default_prefix="A1Soft:", desc=dedent(DetectorIOC.__doc__)
     )

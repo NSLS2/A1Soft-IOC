@@ -96,6 +96,9 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     over_r_arr = Cpt(EpicsSignal, "OVER_R_ARR")
     over_range = Cpt(EpicsSignal, "OVER_RANGE")
 
+    _min_frames = 100
+    """TCP server can't keep up with frame rate faster than this value in non-swept mode"""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._status = None
@@ -126,9 +129,12 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         )
 
         # Frame rate can't be faster than 200ms in any mode except swept
-        if self.frames.get() < 200 and self.acq_mode.get(as_string=True) != "Swept":
+        if (
+            self.frames.get() < self._min_frames
+            and self.acq_mode.get(as_string=True) != "Swept"
+        ):
             self.stage_sigs.update(
-                [(self.frames, 200)],
+                [(self.frames, self._min_frames)],
             )
 
         path = Path(self.file_path.get())
