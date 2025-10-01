@@ -20,10 +20,10 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
     # Live data monitoring
     live_monitoring = Cpt(EpicsSignal, "LIVE:MONITORING")
     live_max_count = Cpt(EpicsSignalRO, "LIVE:MAX_COUNT")
-    live_update_rate = Cpt(EpicsSignal, "LIVE:UPDATE_RATE")
     live_last_update = Cpt(EpicsSignalRO, "LIVE:LAST_UPDATE")
     live_max_count_threshold = Cpt(EpicsSignal, "LIVE:MAX_COUNT_THRESH")
     live_max_count_exceeded = Cpt(EpicsSignal, "LIVE:MAX_COUNT_EXCEEDED")
+    live_max_count_avg_n = Cpt(EpicsSignal, "LIVE:MAX_COUNT_AVG_N")
 
     # Status and info
     connection_status = Cpt(EpicsSignalRO, "SYS:CONNECTED")
