@@ -129,7 +129,10 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         )
 
         # Frame rate can't be faster than 200ms in any mode except swept
-        if self.frames.get() < self._min_frames and self.acq_mode.get(as_string=True) != "Swept":
+        if (
+            self.frames.get() < self._min_frames
+            and self.acq_mode.get(as_string=True) != "Swept"
+        ):
             self.stage_sigs.update(
                 [(self.frames, self._min_frames)],
             )
