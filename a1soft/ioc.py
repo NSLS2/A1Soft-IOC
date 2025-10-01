@@ -464,7 +464,7 @@ class DetectorTCPClient:
 
     async def _stats_monitor_loop(self) -> None:
         """Background task that prints statistics every 30 seconds."""
-        logger.info("Starting statistics monitor loop")
+        logger.debug("Starting statistics monitor loop")
         while not self._shutdown_event.is_set():
             try:
                 await asyncio.sleep(30.0)
@@ -482,20 +482,20 @@ class DetectorTCPClient:
                 )
 
                 # Print statistics
-                print("=== TCP Server Statistics (last 30s) ===")
-                print(f"Total bytes received: {total_bytes:,} bytes")
-                print(f"  JSON port: {self._json_bytes_received:,} bytes")
-                print(f"  Data port: {self._data_bytes_received:,} bytes")
-                print(f"  Live port: {self._live_bytes_received:,} bytes")
-                print(f"Total messages/frames: {total_messages}")
-                print(f"  JSON messages: {self._json_messages_processed}")
-                print(f"  Data frames: {self._data_frames_processed}")
-                print(f"  Live frames: {self._live_frames_processed}")
-                print(
+                logger.debug("=== TCP Server Statistics (last 30s) ===")
+                logger.debug(f"Total bytes received: {total_bytes:,} bytes")
+                logger.debug(f"  JSON port: {self._json_bytes_received:,} bytes")
+                logger.debug(f"  Data port: {self._data_bytes_received:,} bytes")
+                logger.debug(f"  Live port: {self._live_bytes_received:,} bytes")
+                logger.debug(f"Total messages/frames: {total_messages}")
+                logger.debug(f"  JSON messages: {self._json_messages_processed}")
+                logger.debug(f"  Data frames: {self._data_frames_processed}")
+                logger.debug(f"  Live frames: {self._live_frames_processed}")
+                logger.debug(
                     f"Queue sizes - Data: {self._data_queue.qsize()}, Live: {self._live_queue.qsize()}"
                 )
-                print(f"Avg throughput: {total_bytes / 30.0:.1f} bytes/sec")
-                print()
+                logger.debug(f"Avg throughput: {total_bytes / 30.0:.1f} bytes/sec")
+                logger.debug()
 
                 # Reset counters for next interval
                 self._json_bytes_received = 0
@@ -506,13 +506,13 @@ class DetectorTCPClient:
                 self._live_frames_processed = 0
 
             except asyncio.CancelledError:
-                logger.info("Statistics monitor cancelled")
+                logger.debug("Statistics monitor cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in statistics monitor: {e}")
                 await asyncio.sleep(1.0)
 
-        logger.info("Statistics monitor loop stopped")
+        logger.debug("Statistics monitor loop stopped")
 
     async def _read_response(self) -> dict[str, Any] | None:
         """Read response from JSON stream using asyncio streams."""
