@@ -40,6 +40,7 @@ nexusformat = "*"
 bluesky = "*"
 curio = ">=1.4,<2"
 area-detector-handlers = "*"
+databroker = ">=2.0.0b68,<3"
 
 [tool.pixi.environments]
 default = { solve-group = "default" }
