@@ -253,5 +253,5 @@ class TestDeviceWithDatabrokerFilestore:
 
         RE(scan([device], device.deflX, 0.1, 8.7, 5))
 
-        arr = db[-1]["primary"][f"{detector_in_standby.name}_image"].read()
+        arr = db[-1]["ext"][f"{detector_in_standby.name}_image"].read()
         assert arr.shape == (5, device.num_steps.get(), device.num_slice.get()), "Should have correct shape"
