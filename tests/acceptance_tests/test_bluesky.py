@@ -15,20 +15,21 @@ from databroker import Broker
 from a1soft.device import A1SoftFileHandler
 
 
+@pytest.fixture
+def run_engine(self):
+    """Fixture providing a bluesky RunEngine."""
+    RE = RunEngine({})
+    yield RE
+
+    # Cleanup
+    try:
+        RE.halt()
+    except Exception:
+        pass
+
+
 class TestDeviceWithBluesky:
     """Test device interface using bluesky RunEngine and plans."""
-
-    @pytest.fixture
-    def run_engine(self):
-        """Fixture providing a bluesky RunEngine."""
-        RE = RunEngine({})
-        yield RE
-
-        # Cleanup
-        try:
-            RE.halt()
-        except Exception:
-            pass
 
     def test_device_in_simple_count_plan(
         self, detector_in_standby, run_engine, test_output_dir
