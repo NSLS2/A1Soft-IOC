@@ -10,6 +10,9 @@ from bluesky.plans import count, scan
 from bluesky.utils import FailedStatus
 from ophyd.status import StatusBase, WaitTimeoutError
 from ophyd import Staged
+from databroker import Broker
+
+from a1soft.device import A1SoftFileHandler
 
 
 class TestDeviceWithBluesky:
@@ -221,3 +224,32 @@ class TestDeviceWithBluesky:
         # Should have multiple events
         events = [doc for name, doc in documents if name == "event"]
         assert len(events) >= 5, "Should have at least 5 event documents"
+
+
+class TestDeviceWithDatabrokerFilestore:
+    """Test device interface using databroker filestore."""
+
+    @pytest.fixture
+    def broker(self) -> Broker:
+        """Fixture providing a databroker."""
+        db = Broker.named("temp")
+        db.reg.register_handler("A1_HDF5", A1SoftFileHandler, overwrite=True)
+        return db
+
+    def test_device_with_databroker_filestore(self, detector_in_standby, run_engine, test_output_dir, broker):
+        """Test device can write to databroker filestore."""
+        device = detector_in_standby
+        RE = run_engine
+        db = broker
+
+        # Configure device
+        device.file_path.set(str(test_output_dir)).wait(5.0)
+        device.file_name.set("test_multi_trigger.nxs").wait(5.0)
+        device.num_scans.set(1).wait(5.0)
+
+        RE.subscribe(db.insert)
+
+        RE(scan([device], device.deflX, 0.1, 8.7, 5))
+
+        arr = db[-1]["primary"][f"{detector_in_standby.name}_image"].read()
+        assert arr.shape == (5, device.num_steps.get(), device.num_slice.get()), "Should have correct shape"

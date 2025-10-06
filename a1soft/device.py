@@ -234,12 +234,8 @@ class SpectrumAnalyzerFileStore(SpectrumAnalyzer, WritesExternalAssets):
                 yield "resource", self._composer.resource_doc
 
             if index >= self._last_emitted_index:
-                indices = {
-                    "start": self._last_emitted_index,
-                    "stop": index,
-                }
                 self._last_emitted_index = index
-                yield "datum", self._composer.compose_datum(indices)
+                yield "datum", self._composer.compose_datum({"point_number": index})
 
 
 class SpectrumAnalyzerStream(SpectrumAnalyzer, WritesStreamAssets):
