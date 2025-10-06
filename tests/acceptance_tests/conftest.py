@@ -4,7 +4,7 @@ import asyncio
 import os
 from pathlib import Path
 
-from a1soft.device import SpectrumAnalyzer
+from a1soft.device import SpectrumAnalyzerFileStore
 
 
 def pytest_addoption(parser):
@@ -32,7 +32,7 @@ def analyzer_device(request):
     Use --prefix command line option to specify a different EPICS PV prefix.
     """
     prefix = request.config.getoption("--prefix")
-    device = SpectrumAnalyzer(prefix=prefix, name="analyzer")
+    device = SpectrumAnalyzerFileStore(prefix=prefix, name="analyzer")
 
     # Wait for initial connection
     device.wait_for_connection(timeout=10.0)
