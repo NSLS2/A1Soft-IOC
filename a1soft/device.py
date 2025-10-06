@@ -205,6 +205,14 @@ class SpectrumAnalyzer(Device, Readable):
 
 
 class SpectrumAnalyzerFileStore(SpectrumAnalyzer, WritesExternalAssets):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._datum_uids = []
+
+    def stage(self):
+        self._datum_uids = []
+        return super().stage()
+
     def describe(self) -> dict[str, DataKey]:
         describe = super().describe()
         describe.update(
@@ -219,6 +227,11 @@ class SpectrumAnalyzerFileStore(SpectrumAnalyzer, WritesExternalAssets):
             }
         )
         return describe
+
+    def read(self):
+        res = super().read()
+        res[f"{self.name}_image"] = self._datum_uids[-1]
+        return res
 
     def collect_asset_docs(self) -> SyncOrAsyncIterator[Asset]:
         index = self.index
@@ -235,7 +248,9 @@ class SpectrumAnalyzerFileStore(SpectrumAnalyzer, WritesExternalAssets):
 
             if index >= self._last_emitted_index:
                 self._last_emitted_index = index
-                yield "datum", self._composer.compose_datum({"point_number": index})
+                datum = self._composer.compose_datum({"point_number": index})
+                self._datum_uids.append(datum["datum_id"])
+                yield "datum", datum
 
 
 class SpectrumAnalyzerStream(SpectrumAnalyzer, WritesStreamAssets):
