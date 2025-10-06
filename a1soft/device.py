@@ -1,5 +1,7 @@
+import time
 from pathlib import Path
 from typing import Optional
+from itertools import count
 
 import numpy as np
 from bluesky.protocols import WritesStreamAssets, WritesExternalAssets, Readable
@@ -208,10 +210,41 @@ class SpectrumAnalyzerFileStore(SpectrumAnalyzer, WritesExternalAssets):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._datum_uids = []
+        self._asset_docs_cache = []
+        self._point_counter = None
+
+    def _generate_resource(self):
+        self._composer = compose_resource(
+            spec="A1_HDF5",
+            root=str(Path(self._full_path).parent),
+            resource_path=self._full_path,
+            resource_kwargs={"frame_per_point": 1},
+            path_semantics="posix",
+        )
+        self._asset_docs_cache.append(("resource", self._composer.resource_doc))
+
+    def generate_datum(self):
+        timestamp = time.time()
+        i = next(self._point_counter)
+        datum = self._composer.compose_datum({"point_number": i})
+        self._datum_uids.append({"value": datum["datum_id"], "timestamp": timestamp})
+        self._asset_docs_cache.append(("datum", datum))
 
     def stage(self):
         self._datum_uids = []
-        return super().stage()
+        ret = super().stage()
+        self._generate_resource()
+        self._point_counter = count()
+        return ret
+
+    def trigger(self):
+        s = super().trigger()
+        self.generate_datum()
+        return s
+
+    def unstage(self):
+        self._point_counter = None
+        return super().unstage()
 
     def describe(self) -> dict[str, DataKey]:
         describe = super().describe()
@@ -234,23 +267,10 @@ class SpectrumAnalyzerFileStore(SpectrumAnalyzer, WritesExternalAssets):
         return res
 
     def collect_asset_docs(self) -> SyncOrAsyncIterator[Asset]:
-        index = self.index
-        if index:
-            if not self._composer:
-                self._composer = compose_resource(
-                    spec="A1_HDF5",
-                    root=str(Path(self._full_path).parent),
-                    resource_path=self._full_path,
-                    resource_kwargs={"frame_per_point": 1},
-                    path_semantics="posix",
-                )
-                yield "resource", self._composer.resource_doc
-
-            if index >= self._last_emitted_index:
-                self._last_emitted_index = index
-                datum = self._composer.compose_datum({"point_number": index})
-                self._datum_uids.append(datum["datum_id"])
-                yield "datum", datum
+        items = list(self._asset_docs_cache)
+        self._asset_docs_cache = []
+        for item in items:
+            yield item
 
 
 class SpectrumAnalyzerStream(SpectrumAnalyzer, WritesStreamAssets):
