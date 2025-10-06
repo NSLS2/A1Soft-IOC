@@ -4,6 +4,7 @@ Tests the SpectrumAnalyzer device both with bluesky integration.
 """
 
 import pytest
+from typing import Generator
 
 from bluesky import RunEngine
 from bluesky.plans import count, scan
@@ -16,7 +17,7 @@ from a1soft.device import A1SoftFileHandler
 
 
 @pytest.fixture
-def run_engine(self):
+def run_engine() -> Generator[RunEngine, None, None]:
     """Fixture providing a bluesky RunEngine."""
     RE = RunEngine({})
     yield RE
