@@ -2,14 +2,23 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from bluesky.protocols import WritesStreamAssets, Readable
-from bluesky.utils import SyncOrAsyncIterator, StreamAsset
-from event_model import compose_stream_resource, DataKey
+from bluesky.protocols import WritesStreamAssets, WritesExternalAssets, Readable
+from bluesky.utils import SyncOrAsyncIterator, StreamAsset, Asset
+from event_model import compose_stream_resource, compose_resource, DataKey
+from area_detector_handlers.handlers import HDF5DatasetSliceHandler
 from ophyd import Device, Component as Cpt, EpicsSignal, EpicsSignalRO, Staged
 from ophyd.status import Status
 
 
-class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
+class A1SoftFileHandler(HDF5DatasetSliceHandler):
+    specs = {"A1_HDF5"} | HDF5DatasetSliceHandler.specs
+
+    def __init__(self, filename, frame_per_point=1):
+        hardcoded_key = "entry1/analyzer/data"
+        super().__init__(filename, key=hardcoded_key, frame_per_point=frame_per_point)
+
+
+class SpectrumAnalyzer(Device, Readable):
     # Acquisition control
     acquire = Cpt(EpicsSignal, "ACQUIRE")
     acquisition_status = Cpt(EpicsSignalRO, "ACQ:STATUS")
@@ -181,13 +190,66 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         self.acquire.put(1)
         return self._status
 
+    def unstage(self):
+        if self.state.get(as_string=True) == "RUNNING":
+            self.acquire.set(0).wait(3.0)
+        self.det_off.set(1).wait(3.0)
+        super().unstage()
+        self.state.unsubscribe(self._state_changed)
+        self.live_max_count_exceeded.unsubscribe(self._live_max_count_exceeded_monitor)
+        self._composer = None
+
+    @property
+    def index(self) -> int:
+        return self._index
+
+
+class SpectrumAnalyzerFileStore(SpectrumAnalyzer, WritesExternalAssets):
     def describe(self) -> dict[str, DataKey]:
         describe = super().describe()
         describe.update(
             {
                 f"{self.name}_image": DataKey(
                     source=f"{self._full_path}",
-                    shape=(1, 1080, self.num_steps.get()),
+                    shape=(1, self.num_slice.get(), self.num_steps.get()),
+                    dtype="array",
+                    dtype_numpy=np.dtype(np.uint32).str,
+                    external="FILESTORE:",
+                ),
+            }
+        )
+        return describe
+
+    def collect_asset_docs(self) -> SyncOrAsyncIterator[Asset]:
+        index = self.index
+        if index:
+            if not self._composer:
+                self._composer = compose_resource(
+                    spec="A1_HDF5",
+                    root=str(Path(self._full_path).parent),
+                    resource_path=self._full_path,
+                    resource_kwargs={"frame_per_point": 1},
+                    path_semantics="posix",
+                )
+                yield "resource", self._composer.resource_doc
+
+            if index >= self._last_emitted_index:
+                indices = {
+                    "start": self._last_emitted_index,
+                    "stop": index,
+                }
+                self._last_emitted_index = index
+                yield "datum", self._composer.compose_datum(indices)
+
+
+class SpectrumAnalyzerStream(SpectrumAnalyzer, WritesStreamAssets):
+    def describe(self) -> dict[str, DataKey]:
+        describe = super().describe()
+        describe.update(
+            {
+                f"{self.name}_image": DataKey(
+                    source=f"{self._full_path}",
+                    shape=(1, self.num_slice.get(), self.num_steps.get()),
                     dtype="array",
                     dtype_numpy=np.dtype(np.uint32).str,
                     external="STREAM:",
@@ -196,17 +258,14 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
         )
         return describe
 
-    def get_index(self) -> int:
-        return self._index
-
     def collect_asset_docs(
         self, index: Optional[int] = None
     ) -> SyncOrAsyncIterator[StreamAsset]:
         if index is not None:
-            msg = f"Indexing is not supported for this detector, got: {index}, current index: {self.get_index()}"
+            msg = f"Indexing is not supported for this detector, got: {index}, current index: {self.index}"
             raise NotImplementedError(msg)
 
-        index = self.get_index()
+        index = self.index
         if index:
             if not self._composer:
                 self._composer = compose_stream_resource(
@@ -224,12 +283,3 @@ class SpectrumAnalyzer(Device, WritesStreamAssets, Readable):
                 }
                 self._last_emitted_index = index
                 yield "stream_datum", self._composer.compose_stream_datum(indices)
-
-    def unstage(self):
-        if self.state.get(as_string=True) == "RUNNING":
-            self.acquire.set(0).wait(3.0)
-        self.det_off.set(1).wait(3.0)
-        super().unstage()
-        self.state.unsubscribe(self._state_changed)
-        self.live_max_count_exceeded.unsubscribe(self._live_max_count_exceeded_monitor)
-        self._composer = None

@@ -39,6 +39,7 @@ python = ">=3.10,<3.12"
 nexusformat = "*"
 bluesky = "*"
 curio = ">=1.4,<2"
+area-detector-handlers = "*"
 
 [tool.pixi.environments]
 default = { solve-group = "default" }
