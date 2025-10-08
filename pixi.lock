@@ -1822,7 +1822,7 @@ packages:
 - pypi: ./
   name: a1soft
   version: 0.1.0
-  sha256: ae1bb782df078f88f53b4f36695dab187c8ca774f5816342a78bd5c1f060c527
+  sha256: bb42d018d49fd582adc474c50b5a95b6823b2fd6a41948676277cb160995fbf1
   requires_dist:
   - bluesky
   - build>=1.3.0,<2

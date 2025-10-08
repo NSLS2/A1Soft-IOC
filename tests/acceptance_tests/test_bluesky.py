@@ -13,8 +13,6 @@ from ophyd.status import StatusBase, WaitTimeoutError
 from ophyd import Staged
 from databroker import Broker
 
-from a1soft.device import A1SoftFileHandler
-
 
 @pytest.fixture
 def run_engine() -> Generator[RunEngine, None, None]:
@@ -238,7 +236,9 @@ class TestDeviceWithDatabrokerFilestore:
         # Handler is registered in the entry-points of pyproject.toml
         return db
 
-    def test_device_with_databroker_filestore(self, detector_in_standby, run_engine, test_output_dir, broker):
+    def test_device_with_databroker_filestore(
+        self, detector_in_standby, run_engine, test_output_dir, broker
+    ):
         """Test device can write to databroker filestore."""
         device = detector_in_standby
         RE = run_engine
@@ -254,4 +254,6 @@ class TestDeviceWithDatabrokerFilestore:
         RE(scan([device], device.deflX, 0.1, 8.7, 5))
 
         arr = db[-1].xarray()["analyzer_image"].squeeze()
-        assert arr.shape == (5, device.num_slice.get(), device.num_steps.get()), "Should have correct shape"
+        assert arr.shape == (5, device.num_slice.get(), device.num_steps.get()), (
+            "Should have correct shape"
+        )
