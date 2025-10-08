@@ -16,7 +16,7 @@ There are three TCP socket connections.
 |-------|-------------|
 | Data | For images accessed via the `GET_IMAGE` [Action](#Actions). |
 | Commands | For commands sent from a client and responses to that client (in JSON format) |
-| Live plots | For live data monitoring (DOES NOT WORK) |
+| Live plots | For live data monitoring |
 
 ## Commands Types
 
