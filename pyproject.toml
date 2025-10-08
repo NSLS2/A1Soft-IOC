@@ -23,6 +23,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.entry-points."databroker.handlers"]
+A1_HDF5 = "a1soft.device:A1SoftFileHandler"
+
 [tool.hatch.version]
 path = "a1soft/__init__.py" 
 
@@ -39,6 +42,8 @@ python = ">=3.10,<3.12"
 nexusformat = "*"
 bluesky = "*"
 curio = ">=1.4,<2"
+area-detector-handlers = "*"
+databroker = ">=2.0.0b68,<3"
 
 [tool.pixi.environments]
 default = { solve-group = "default" }
