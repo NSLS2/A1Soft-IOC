@@ -235,7 +235,7 @@ class TestDeviceWithDatabrokerFilestore:
     def broker(self) -> Broker:
         """Fixture providing a databroker."""
         db = Broker.named("temp")
-        db.reg.register_handler("A1_HDF5", A1SoftFileHandler, overwrite=True)
+        # Handler is registered in the entry-points of pyproject.toml
         return db
 
     def test_device_with_databroker_filestore(self, detector_in_standby, run_engine, test_output_dir, broker):
