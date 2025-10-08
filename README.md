@@ -30,7 +30,7 @@ Here are a list of the types of commands able to be processed by the TCP server.
 
 ## Parameters
 
-> ![NOTE]
+> [!NOTE]
 > For the `acqMode` parameter, we manually changed the LabView TypeDef to include FixedTrigd, which was not included by default.
 
 | Name | Type | Description | Read-Only? | 
@@ -134,7 +134,7 @@ The "Live Data" must be configured to be on and the monitor must be enabled. The
 the TCP server, so you must manually configure this in LabView. You can control the rate at which the TCP server adds
 live data by configuring it in the `parameters.ini` file that should have come with the server.
 
-> ![NOTE]
+> [!NOTE]
 > There were some bugs in the dataTransferLoop.vi that was causing data to be added to the live socket every 5ms! This overloaded the socket and caused
 > many issues. You have to fix this by either increasing the 5ms to 1000ms or moving the error wire after the socket connection heartbeat. We did both to make it work.
 
