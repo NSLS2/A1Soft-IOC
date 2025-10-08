@@ -16,7 +16,7 @@ class A1SoftFileHandler(HDF5DatasetSliceHandler):
     specs = {"A1_HDF5"} | HDF5DatasetSliceHandler.specs
 
     def __init__(self, filename, frame_per_point=1):
-        hardcoded_key = "entry1/analyzer/data"
+        hardcoded_key = "entry/instrument/analyzer/data"
         super().__init__(filename, key=hardcoded_key, frame_per_point=frame_per_point)
 
 
