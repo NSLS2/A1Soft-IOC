@@ -4,6 +4,7 @@ Caproto server implementing TCP interface to LabView detector system.
 Exposes EPICS PVs that control acquisition, parameters, and monitoring.
 """
 
+import shutil
 import asyncio
 from collections import deque
 import json
@@ -921,7 +922,9 @@ class DetectorWriter:
     def __init__(self) -> None:
         self._image_queue: asyncio.Queue | None = None
         self._full_file_path: Path | None = None
+        self._temp_file_path: Path | None = None
         self._image_writer_task: asyncio.Task | None = None
+        self._temp_file_handle: Any = None
 
     async def write_image(self, index: int, data: dict[str, Any]) -> None:
         """Queue an image for writing."""
@@ -946,17 +949,16 @@ class DetectorWriter:
         units: str,
         **kwargs: dict[str, Any],
     ) -> None:
-        """Write an array to the file."""
-        if self._full_file_path is None:
-            raise RuntimeError("File path not set")
-        with nxopen(self._full_file_path, "a", libver="latest") as file_handle:
-            group = file_handle[path]
-            group[name] = NXfield(
-                array,
-                name=name,
-                units=units,
-                **kwargs,
-            )
+        """Write an array to the temp file."""
+        if self._temp_file_handle is None:
+            raise RuntimeError("Temp file handle not set")
+        group = self._temp_file_handle[path]
+        group[name] = NXfield(
+            array,
+            name=name,
+            units=units,
+            **kwargs,
+        )
 
     def _create_structure(self, root: NXroot) -> None:
         if "entry" not in root:
@@ -966,15 +968,70 @@ class DetectorWriter:
         if "analyzer" not in root.entry.instrument:
             root.entry.instrument.analyzer = NXdetector(name="analyzer")
 
+    async def _update_live_file(self, retry_timeout: float = 0.0) -> bool:
+        """Try to copy temp file to live file. Skip if live file is locked.
+
+        Args:
+            retry_timeout: If > 0, retry until success or timeout (seconds).
+                          If 0, single attempt only.
+
+        Returns:
+            True if copy succeeded, False otherwise.
+        """
+
+        start_time = time.time()
+        attempt = 0
+
+        while True:
+            attempt += 1
+            try:
+                shutil.copy2(self._temp_file_path, self._full_file_path)
+                if retry_timeout > 0:
+                    logger.info(
+                        f"Successfully copied temp to live file (attempt {attempt})"
+                    )
+                else:
+                    logger.debug("Successfully updated live file")
+                return True
+
+            except (PermissionError, OSError) as e:
+                elapsed = time.time() - start_time
+
+                if retry_timeout > 0:
+                    # Retry mode - keep trying until timeout
+                    if elapsed < retry_timeout:
+                        logger.debug(
+                            f"Live file locked (attempt {attempt}), retrying... ({elapsed:.1f}s elapsed)"
+                        )
+                        await asyncio.sleep(0.1)  # Wait 100ms between retries
+                        continue
+                    else:
+                        logger.error(
+                            f"Failed to copy to live file after {retry_timeout}s timeout: {e}"
+                        )
+                        return False
+                else:
+                    # Single attempt mode - just skip
+                    logger.debug(f"Live file locked, skipping update: {e}")
+                    return False
+
+            except Exception as e:
+                logger.error(f"Unexpected error updating live file: {e}")
+                return False
+
     async def _image_writer(self) -> None:
         """Background task that continuously writes image data from queue to file."""
-        if self._full_file_path is None:
+        if self._temp_file_path is None:
             raise RuntimeError("File path not set")
 
-        with nxopen(self._full_file_path, "w", libver="latest") as file_handle:
-            self._create_structure(file_handle)
+        # Open temp file and keep it open
+        self._temp_file_handle = nxopen(self._temp_file_path, "w", libver="latest")
+        self._create_structure(self._temp_file_handle)
 
         first_pass = True
+        data_field = None
+        deflx_field = None
+
         while True:
             try:
                 # Wait for data from the queue
@@ -984,46 +1041,49 @@ class DetectorWriter:
                 if item is None:
                     break
 
-                with nxopen(self._full_file_path, "a", libver="latest") as file_handle:
-                    entry = file_handle.entry
-                    detector = entry.instrument.analyzer
-                    index, data = item
-                    if first_pass:
-                        data_field = NXfield(
-                            name="data",
-                            shape=(0, data["cur_height"], data["cur_width"]),
-                            dtype=np.uint32,
-                            maxshape=(None, data["cur_height"], data["cur_width"]),
-                            chunks=(64, data["cur_height"], data["cur_width"]),
-                            compression="lzf",
-                            shuffle=True,
-                        )
-                        detector["data"] = data_field
-                        deflx_field = NXfield(
-                            name="deflector_x",
-                            shape=(0,),
-                            dtype=np.float64,
-                            maxshape=(None,),
-                        )
-                        detector["deflector_x"] = deflx_field
-                        first_pass = False
+                entry = self._temp_file_handle.entry
+                detector = entry.instrument.analyzer
+                index, data = item
 
-                    # We continually overwrite the last frame in the data field in-case of
-                    # an error during acquisition.
-                    # The index value is incremented when acquisition state transitions to STANDBY
-                    # This way, the last frame of each acquisition is saved (which is the cumulative sum
-                    # of all the "act_scans" in the acquisition).
-                    size = index + 1
-                    if data_field.shape[0] < size:
-                        data_field.resize(size, axis=0)
-                    if deflx_field.shape[0] < size:
-                        deflx_field.resize(size, axis=0)
+                if first_pass:
+                    data_field = NXfield(
+                        name="data",
+                        shape=(0, data["cur_height"], data["cur_width"]),
+                        dtype=np.uint32,
+                        maxshape=(None, data["cur_height"], data["cur_width"]),
+                        chunks=(64, data["cur_height"], data["cur_width"]),
+                        compression="lzf",
+                        shuffle=True,
+                    )
+                    detector["data"] = data_field
+                    deflx_field = NXfield(
+                        name="deflector_x",
+                        shape=(0,),
+                        dtype=np.float64,
+                        maxshape=(None,),
+                    )
+                    detector["deflector_x"] = deflx_field
+                    first_pass = False
 
-                    data_field[index, :, :] = data["channel_2_data"]
-                    deflx_field[index] = data["deflX"]
-                    logger.info(f"Writing frame {size} to file")
-                    # Update the file immediately to avoid losing data
-                    file_handle.nxfile.file.flush()
+                # We continually overwrite the last frame in the data field in-case of
+                # an error during acquisition.
+                # The index value is incremented when acquisition state transitions to STANDBY
+                # This way, the last frame of each acquisition is saved (which is the cumulative sum
+                # of all the "act_scans" in the acquisition).
+                size = index + 1
+                if data_field.shape[0] < size:
+                    data_field.resize(size, axis=0)
+                if deflx_field.shape[0] < size:
+                    deflx_field.resize(size, axis=0)
+
+                data_field[index, :, :] = data["channel_2_data"]
+                deflx_field[index] = data["deflX"]
+                logger.info(f"Writing frame {size} to temp file")
+                # Flush to disk
+                self._temp_file_handle.nxfile.file.flush()
+
+                # Try to update the live file (non-blocking)
+                await self._update_live_file()
 
                 # Mark the task as done
                 self._image_queue.task_done()
@@ -1049,44 +1109,53 @@ class DetectorWriter:
         if not path.exists():
             path.mkdir(parents=True, exist_ok=True)
 
+        # Set up live file (for readers) and temp file (for IOC writing)
         self._full_file_path = path / name
+        self._temp_file_path = path / f".{name}.tmp"
+
         if self._full_file_path.exists():
-            logger.warning(f"File already exists, overwriting: {self._full_file_path}")
+            logger.warning(
+                f"Live file already exists, overwriting: {self._full_file_path}"
+            )
+        if self._temp_file_path.exists():
+            logger.warning(
+                f"Temp file already exists, overwriting: {self._temp_file_path}"
+            )
+
         self._image_queue = asyncio.Queue(maxsize=100)
 
         # Start background file writer task
         self._image_writer_task = asyncio.create_task(self._image_writer())
 
     def _link_results(self) -> None:
-        if self._full_file_path is None:
-            raise RuntimeError("File path not set")
+        # Add the final data field to the temp file
+        if (
+            "entry" not in self._temp_file_handle
+            or "instrument" not in self._temp_file_handle.entry
+            or "analyzer" not in self._temp_file_handle.entry.instrument
+        ):
+            logger.warning("File was never initialized, skipping linking")
+            return
 
-        with nxopen(self._full_file_path, "a", libver="latest") as file_handle:
-            # Add the final data field to the file
-            if (
-                "entry" not in file_handle
-                or "instrument" not in file_handle.entry
-                or "analyzer" not in file_handle.entry.instrument
-            ):
-                logger.warning("File was never initialized, skipping linking")
-                return
-            deflector_x_exists = "deflector_x" in file_handle.entry.instrument.analyzer
-            angles_exists = "angles" in file_handle.entry.instrument.analyzer
-            energies_exists = "energies" in file_handle.entry.instrument.analyzer
-            data_exists = "data" in file_handle.entry.instrument.analyzer
-            if deflector_x_exists:
-                dfl = NXlink(file_handle.entry.instrument.analyzer.deflector_x)
-            if angles_exists:
-                an = NXlink(file_handle.entry.instrument.analyzer.angles)
-            if energies_exists:
-                en = NXlink(file_handle.entry.instrument.analyzer.energies)
-            if data_exists:
-                counts = NXlink(file_handle.entry.instrument.analyzer.data)
-            if all((deflector_x_exists, angles_exists, energies_exists, data_exists)):
-                file_handle.entry.data = NXdata(
-                    counts,
-                    [dfl, an, en],
-                )
+        file_handle = self._temp_file_handle
+        deflector_x_exists = "deflector_x" in file_handle.entry.instrument.analyzer
+        angles_exists = "angles" in file_handle.entry.instrument.analyzer
+        energies_exists = "energies" in file_handle.entry.instrument.analyzer
+        data_exists = "data" in file_handle.entry.instrument.analyzer
+
+        if deflector_x_exists:
+            dfl = NXlink(file_handle.entry.instrument.analyzer.deflector_x)
+        if angles_exists:
+            an = NXlink(file_handle.entry.instrument.analyzer.angles)
+        if energies_exists:
+            en = NXlink(file_handle.entry.instrument.analyzer.energies)
+        if data_exists:
+            counts = NXlink(file_handle.entry.instrument.analyzer.data)
+        if all((deflector_x_exists, angles_exists, energies_exists, data_exists)):
+            file_handle.entry.data = NXdata(
+                counts,
+                [dfl, an, en],
+            )
 
     async def close(self) -> None:
         # Stop background writer task
@@ -1100,8 +1169,27 @@ class DetectorWriter:
                 logger.warning("File writer task did not shutdown cleanly")
                 self._image_writer_task.cancel()
             self._image_writer_task = None
-        # Finalize the file
-        self._link_results()
+
+        # Close temp file handle
+        if self._temp_file_handle:
+            # Finalize the temp file
+            self._link_results()
+            self._temp_file_handle.close()
+            self._temp_file_handle = None
+
+        # Do final copy to live file with retries
+        if self._temp_file_path and self._temp_file_path.exists():
+            success = await self._update_live_file(retry_timeout=10.0)
+            if not success:
+                logger.critical("Final copy to live file failed after retries!")
+
+            # Clean up temp file
+            try:
+                self._temp_file_path.unlink()
+                logger.info("Removed temporary file")
+            except Exception as e:
+                logger.warning(f"Failed to remove temp file: {e}")
+
         # Clear any remaining items in queue
         while not self._image_queue.empty():
             try:
@@ -1111,6 +1199,7 @@ class DetectorWriter:
                 break
 
         self._full_file_path = None
+        self._temp_file_path = None
         self._image_queue = None
         self._image_writer_task = None
 
