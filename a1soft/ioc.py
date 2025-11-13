@@ -25,6 +25,7 @@ from nexusformat.nexus import (
     NXinstrument,
     NXlink,
 )
+import hdf5plugin
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run, PvpropertyData
 from caproto import ChannelType
 import numpy as np
@@ -1052,8 +1053,7 @@ class DetectorWriter:
                         dtype=np.uint32,
                         maxshape=(None, data["cur_height"], data["cur_width"]),
                         chunks=(64, data["cur_height"], data["cur_width"]),
-                        compression="lzf",
-                        shuffle=True,
+                        compression=hdf5plugin.Blosc(cname="zstd"),
                     )
                     detector["data"] = data_field
                     deflx_field = NXfield(
