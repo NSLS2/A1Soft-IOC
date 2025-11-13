@@ -1328,6 +1328,7 @@ class DetectorIOC(PVGroup):
             "PE005",
             "PE010",
             "PE020",
+            "PE030",
             "PE050",
             "PE100",
             "PE200",
