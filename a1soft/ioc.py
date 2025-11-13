@@ -1082,8 +1082,10 @@ class DetectorWriter:
                 # Flush to disk
                 self._temp_file_handle.nxfile.file.flush()
 
-                # Try to update the live file (non-blocking)
+                # Try to update the live file
+                self._temp_file_handle.close()
                 await self._update_live_file()
+                self._temp_file_handle = nxopen(self._temp_file_path, "a", libver="latest")
 
                 # Mark the task as done
                 self._image_queue.task_done()
