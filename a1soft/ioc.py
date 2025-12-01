@@ -587,7 +587,7 @@ class DetectorTCPClient:
         cmd_type: str,
         *,
         action: str | None = None,
-        parameter: str | None = None,
+        parameter: str | list[str] | None = None,
         value: str | None = None,
         get_response: bool = True,
     ) -> dict[str, Any] | None:
@@ -908,7 +908,7 @@ class DetectorTCPClient:
         """Get all parameters from detector."""
         return await self.send_command("GET", parameter="*")
 
-    async def get_parameter(self, param_name: str) -> dict[str, Any] | None:
+    async def get_parameter(self, param_name: str | list[str]) -> dict[str, Any] | None:
         """Get specific parameter from detector."""
         return await self.send_command("GET", parameter=param_name)
 
@@ -1031,7 +1031,6 @@ class DetectorWriter:
 
         first_pass = True
         data_field = None
-        deflx_field = None
 
         while True:
             try:
@@ -1056,13 +1055,14 @@ class DetectorWriter:
                         compression=hdf5plugin.Blosc(cname="zstd"),
                     )
                     detector["data"] = data_field
-                    deflx_field = NXfield(
-                        name="deflector_x",
-                        shape=(0,),
-                        dtype=np.float64,
-                        maxshape=(None,),
-                    )
-                    detector["deflector_x"] = deflx_field
+                    for param_name, _ in data["metadata"].items():
+                        field = NXfield(
+                            name=param_name,
+                            shape=(0,),
+                            dtype=np.float64,
+                            maxshape=(None,),
+                        )
+                        detector[param_name] = field
                     first_pass = False
 
                 # We continually overwrite the last frame in the data field in-case of
@@ -1073,11 +1073,14 @@ class DetectorWriter:
                 size = index + 1
                 if data_field.shape[0] < size:
                     data_field.resize(size, axis=0)
-                if deflx_field.shape[0] < size:
-                    deflx_field.resize(size, axis=0)
-
                 data_field[index, :, :] = data["channel_2_data"]
-                deflx_field[index] = data["deflX"]
+                
+                # Append metadata to file
+                for param_name, value in data["metadata"].items():
+                    if detector[param_name].shape[0] < size:
+                        detector[param_name].resize(size, axis=0)
+                    detector[param_name][index] = value
+
                 logger.info(f"Writing frame {size} to temp file")
                 # Flush to disk
                 self._temp_file_handle.nxfile.file.flush()
@@ -1142,13 +1145,13 @@ class DetectorWriter:
             return
 
         file_handle = self._temp_file_handle
-        deflector_x_exists = "deflector_x" in file_handle.entry.instrument.analyzer
+        deflx_exists = "deflX" in file_handle.entry.instrument.analyzer
         angles_exists = "angles" in file_handle.entry.instrument.analyzer
         energies_exists = "energies" in file_handle.entry.instrument.analyzer
         data_exists = "data" in file_handle.entry.instrument.analyzer
 
-        if deflector_x_exists:
-            dfl = NXlink(file_handle.entry.instrument.analyzer.deflector_x)
+        if deflx_exists:
+            dfl = NXlink(file_handle.entry.instrument.analyzer.deflX)
         if angles_exists:
             an = NXlink(file_handle.entry.instrument.analyzer.angles)
         if energies_exists:
@@ -1425,6 +1428,8 @@ class DetectorIOC(PVGroup):
     over_r_arr = pvproperty(name="OVER_R_ARR", dtype=ChannelType.STRING, read_only=True)
     over_range = pvproperty(name="OVER_RANGE", dtype=int, read_only=True)
 
+    _metadata_params = [deflX, escale_min, escale_max, num_slice, xscale_min, xscale_max, yscale_min, yscale_max]
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.tcp_client: DetectorTCPClient = DetectorTCPClient()
@@ -1499,20 +1504,21 @@ class DetectorIOC(PVGroup):
             self.over_range: "OverRange",
         }
         self._param_names_to_pvs = {v: k for k, v in self._pvs_to_param_names.items()}
+        self._metadata_param_strings = [self._pvs_to_param_names[param] for param in self._metadata_params]
 
     async def _get_current_frame(self) -> dict[str, Any] | None:
         _, response = await asyncio.gather(
             self.tcp_client.send_command(
                 "ACTION", action="GET_IMAGE", get_response=False
             ),
-            self.tcp_client.get_parameter(self._pvs_to_param_names[self.deflX]),
+            self.tcp_client.get_parameter(self._metadata_param_strings),
         )
 
         data = await self.tcp_client.get_data()
         if data:
-            # Note: max_count is now monitored via live data port when live monitoring is enabled
-            # This provides much more frequent monitoring for emergency detection
-            data["deflX"] = response["values"][0]["value"]
+            data["metadata"] = {
+                v["name"]: v["value"] for v in response["values"]
+            }
             return data
         else:
             logger.warning("Failed to read image data")
