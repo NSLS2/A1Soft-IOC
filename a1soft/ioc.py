@@ -1103,10 +1103,10 @@ class DetectorWriter:
     def _get_next_file_number(self, directory: Path, prefix: str) -> int:
         """Find the next available file number for the given prefix.
 
-        Scans directory for files matching {prefix}_NNN.nxs pattern
-        and returns max(NNN) + 1, or 1 if none exist.
+        Scans directory for files matching {prefix}_NNNN.nxs pattern
+        and returns max(NNNN) + 1, or 1 if none exist.
         """
-        pattern = re.compile(rf"^{re.escape(prefix)}_(\d{{3}})\.nxs$")
+        pattern = re.compile(rf"^{re.escape(prefix)}_(\d{{4}})\.nxs$")
         max_num = 0
         if directory.exists():
             for f in directory.iterdir():
@@ -1115,13 +1115,16 @@ class DetectorWriter:
                     max_num = max(max_num, int(match.group(1)))
         return max_num + 1
 
-    async def open(self, path: str, prefix: str) -> None:
+    async def open(self, path: str, prefix: str) -> str:
         """Initialize file for writing.
 
         Args:
             path: Directory path for the file.
-            prefix: File name prefix. The final filename will be {prefix}_NNN.nxs
-                    where NNN is an auto-incrementing number.
+            prefix: File name prefix. The final filename will be {prefix}_NNNN.nxs
+                    where NNNN is an auto-incrementing 4-digit number.
+
+        Returns:
+            The generated filename (without path).
         """
         if not path:
             msg = f"File path not set, got: {path}"
@@ -1137,7 +1140,7 @@ class DetectorWriter:
 
         # Determine the next file number and construct the filename
         next_num = self._get_next_file_number(path, prefix)
-        name = f"{prefix}_{next_num:03d}.nxs"
+        name = f"{prefix}_{next_num:04d}.nxs"
 
         # Set up live file (for readers) and temp file (for IOC writing)
         self._full_file_path = path / name
@@ -1148,6 +1151,8 @@ class DetectorWriter:
 
         # Start background file writer task
         self._image_writer_task = asyncio.create_task(self._image_writer())
+
+        return name
 
     def _link_results(self) -> None:
         # Add the final data field to the temp file
@@ -1302,6 +1307,14 @@ class DetectorIOC(PVGroup):
         dtype=str,
         max_length=1024,
     )
+    file_name = pvproperty(
+        value="",
+        name="FILE:NAME",
+        dtype=str,
+        max_length=1024,
+        read_only=True,
+    )
+    """The actual filename being written (read-only, set after capture starts)."""
     file_path = pvproperty(
         value="",
         name="FILE:PATH",
@@ -1551,7 +1564,8 @@ class DetectorIOC(PVGroup):
                 file_path = self.file_path.value
                 file_prefix = self.file_prefix.value
                 self._written_metadata = False
-                await self.writer.open(file_path, file_prefix)
+                filename = await self.writer.open(file_path, file_prefix)
+                await self.file_name.write(filename)
                 await self.num_captured.write(0)
             else:
                 await self.writer.close()
