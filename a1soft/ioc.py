@@ -4,6 +4,7 @@ Caproto server implementing TCP interface to LabView detector system.
 Exposes EPICS PVs that control acquisition, parameters, and monitoring.
 """
 
+import re
 import shutil
 import asyncio
 from collections import deque
@@ -1099,32 +1100,49 @@ class DetectorWriter:
                 # Mark the task as done even on error
                 self._image_queue.task_done()
 
-    async def open(self, path: str, name: str) -> None:
-        """Initialize file for writing."""
+    def _get_next_file_number(self, directory: Path, prefix: str) -> int:
+        """Find the next available file number for the given prefix.
+
+        Scans directory for files matching {prefix}_NNN.nxs pattern
+        and returns max(NNN) + 1, or 1 if none exist.
+        """
+        pattern = re.compile(rf"^{re.escape(prefix)}_(\d{{3}})\.nxs$")
+        max_num = 0
+        if directory.exists():
+            for f in directory.iterdir():
+                match = pattern.match(f.name)
+                if match:
+                    max_num = max(max_num, int(match.group(1)))
+        return max_num + 1
+
+    async def open(self, path: str, prefix: str) -> None:
+        """Initialize file for writing.
+
+        Args:
+            path: Directory path for the file.
+            prefix: File name prefix. The final filename will be {prefix}_NNN.nxs
+                    where NNN is an auto-incrementing number.
+        """
         if not path:
             msg = f"File path not set, got: {path}"
             logger.error(msg)
             raise RuntimeError(msg)
-        if not name or not name.endswith(".nxs"):
-            msg = f"File name must be set and end with .nxs, got: {name}"
+        if not prefix:
+            msg = f"File prefix must be set, got: {prefix}"
             logger.error(msg)
             raise RuntimeError(msg)
         path = Path(path)
         if not path.exists():
             path.mkdir(parents=True, exist_ok=True)
 
+        # Determine the next file number and construct the filename
+        next_num = self._get_next_file_number(path, prefix)
+        name = f"{prefix}_{next_num:03d}.nxs"
+
         # Set up live file (for readers) and temp file (for IOC writing)
         self._full_file_path = path / name
         self._temp_file_path = path / f".{name}.tmp"
-
-        if self._full_file_path.exists():
-            logger.warning(
-                f"Live file already exists, overwriting: {self._full_file_path}"
-            )
-        if self._temp_file_path.exists():
-            logger.warning(
-                f"Temp file already exists, overwriting: {self._temp_file_path}"
-            )
+        logger.info(f"Opening file: {self._full_file_path}")
 
         self._image_queue = asyncio.Queue(maxsize=100)
 
@@ -1278,9 +1296,9 @@ class DetectorIOC(PVGroup):
 
     # File writing
     file_capture = pvproperty(value=False, name="FILE:CAPTURE", dtype=bool)
-    file_name = pvproperty(
+    file_prefix = pvproperty(
         value="",
-        name="FILE:NAME",
+        name="FILE:PREFIX",
         dtype=str,
         max_length=1024,
     )
@@ -1531,9 +1549,9 @@ class DetectorIOC(PVGroup):
         async with self._file_capture_lock:
             if value == "On":
                 file_path = self.file_path.value
-                filename = self.file_name.value
+                file_prefix = self.file_prefix.value
                 self._written_metadata = False
-                await self.writer.open(file_path, filename)
+                await self.writer.open(file_path, file_prefix)
                 await self.num_captured.write(0)
             else:
                 await self.writer.close()
