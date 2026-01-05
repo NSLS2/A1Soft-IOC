@@ -21,10 +21,10 @@ class TestFileCapture:
 
         # Set file path and name
         file_path = str(test_output_dir)
-        file_name = "test_enable_capture.nxs"
+        file_prefix = "test_enable_capture"
 
         device.file_path.set(file_path).wait(5.0)
-        device.file_name.set(file_name).wait(5.0)
+        device.file_prefix.set(file_prefix).wait(5.0)
 
         # Verify initial state
         assert device.file_capture.get(as_string=True) == "Off", (
@@ -52,10 +52,10 @@ class TestFileCapture:
 
         # Set up file capture
         file_path = str(test_output_dir)
-        file_name = "test_double_enable.nxs"
+        file_prefix = "test_double_enable"
 
         device.file_path.set(file_path).wait(5.0)
-        device.file_name.set(file_name).wait(5.0)
+        device.file_prefix.set(file_prefix).wait(5.0)
 
         # Enable file capture
         device.file_capture.set("On").wait(5.0)
@@ -85,11 +85,11 @@ class TestFileWriting:
 
         # Set up file capture
         file_path = str(test_output_dir)
-        file_name = "test_structure.nxs"
-        full_path = test_output_dir / file_name
+        file_prefix = "test_structure"
+        full_path = test_output_dir / f"{file_prefix}_0001.nxs"
 
         device.file_path.set(file_path).wait(5.0)
-        device.file_name.set(file_name).wait(5.0)
+        device.file_prefix.set(file_prefix).wait(5.0)
         device.file_capture.set("On").wait(5.0)
 
         # Sleep to ensure file is initialized before disabling
@@ -116,11 +116,11 @@ class TestFileWriting:
 
         # Set up file capture
         file_path = str(test_output_dir)
-        file_name = "test_acquisition.nxs"
-        full_path = test_output_dir / file_name
+        file_prefix = "test_acquisition"
+        full_path = test_output_dir / f"{file_prefix}_0001.nxs"
 
         device.file_path.set(file_path).wait(5.0)
-        device.file_name.set(file_name).wait(5.0)
+        device.file_prefix.set(file_prefix).wait(5.0)
         device.file_capture.set("On").wait(5.0)
 
         # Start acquisition
@@ -154,11 +154,11 @@ class TestFileWriting:
 
         # Set up file capture
         file_path = str(test_output_dir)
-        file_name = "test_multiple_acquisitions.nxs"
-        full_path = test_output_dir / file_name
+        file_prefix = "test_multiple_acquisitions"
+        full_path = test_output_dir / f"{file_prefix}_0001.nxs"
 
         device.file_path.set(file_path).wait(5.0)
-        device.file_name.set(file_name).wait(5.0)
+        device.file_prefix.set(file_prefix).wait(5.0)
         device.file_capture.set("On").wait(5.0)
 
         for i in range(1, 4):
@@ -190,11 +190,11 @@ class TestFileWriting:
 
         # Set up file capture
         file_path = str(test_output_dir)
-        file_name = "test_readable_during_acquisition.nxs"
-        full_path = test_output_dir / file_name
+        file_prefix = "test_readable_during_acquisition"
+        full_path = test_output_dir / f"{file_prefix}_0001.nxs"
 
         device.file_path.set(file_path).wait(5.0)
-        device.file_name.set(file_name).wait(5.0)
+        device.file_prefix.set(file_prefix).wait(5.0)
         device.file_capture.set("On").wait(5.0)
 
         shape_tracker = []
@@ -225,11 +225,11 @@ class TestFileWriting:
 
         # Set up file capture
         file_path = str(test_output_dir)
-        file_name = "test_contains_metadata.nxs"
-        full_path = test_output_dir / file_name
+        file_prefix = "test_contains_metadata"
+        full_path = test_output_dir / f"{file_prefix}_0001.nxs"
 
         device.file_path.set(file_path).wait(5.0)
-        device.file_name.set(file_name).wait(5.0)
+        device.file_prefix.set(file_prefix).wait(5.0)
         device.file_capture.set("On").wait(5.0)
 
         device.acquire.set(1).wait(5.0)
@@ -255,11 +255,11 @@ class TestFileWriting:
 
         # Set up file capture
         file_path = str(test_output_dir)
-        file_name = "test_read_speed.nxs"
-        full_path = test_output_dir / file_name
+        file_prefix = "test_read_speed"
+        full_path = test_output_dir / f"{file_prefix}_0001.nxs"
 
         device.file_path.set(file_path).wait(5.0)
-        device.file_name.set(file_name).wait(5.0)
+        device.file_prefix.set(file_prefix).wait(5.0)
         device.file_capture.set("On").wait(5.0)
 
         # Acquire 1 frame
@@ -298,10 +298,10 @@ class TestFilePathHandling:
         # Use a nested directory that doesn't exist
         nested_dir = tmp_path / "nested" / "directories"
         file_path = str(nested_dir)
-        file_name = "test_nested.nxs"
+        file_prefix = "test_nested"
 
         device.file_path.set(file_path).wait(5.0)
-        device.file_name.set(file_name).wait(5.0)
+        device.file_prefix.set(file_prefix).wait(5.0)
 
         # Enable file capture - should create directories
         device.file_capture.set("On").wait(5.0)
@@ -316,5 +316,5 @@ class TestFilePathHandling:
         device.file_capture.set("Off").wait(5.0)
 
         # Verify file was created
-        full_path = nested_dir / file_name
+        full_path = nested_dir / f"{file_prefix}_0001.nxs"
         assert full_path.exists(), "File should have been created in nested directory"
