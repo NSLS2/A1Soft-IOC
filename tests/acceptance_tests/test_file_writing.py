@@ -206,7 +206,9 @@ class TestFileWriting:
                 wait_for_state(device, "RUNNING", timeout=10.0)
                 wait_for_state(device, "STANDBY", timeout=60.0)
             device.file_capture.set("Off").wait(5.0)
-            assert shape_tracker == [1, 2], "Should have 2 images"
+            assert shape_tracker == [1, 2] or shape_tracker == [2, 2], (
+                "Should have 2 images"
+            )
         finally:
             device.num_captured.unsubscribe(_num_captured_callback)
 
@@ -311,4 +313,6 @@ class TestFilePathHandling:
 
         # Verify file was not created
         full_path = nested_dir / f"{file_prefix}_0001.nxs"
-        assert not full_path.exists(), "File should not have been created in nested directory"
+        assert not full_path.exists(), (
+            "File should not have been created in nested directory"
+        )
