@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  pre-commit:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,3 +25,6 @@ jobs:
 
       - name: Run pre-commit
         run: pre-commit run --all-files
+      
+      - name: Run unit tests
+        run: pytest tests/unit_tests
