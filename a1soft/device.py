@@ -150,18 +150,21 @@ class SpectrumAnalyzer(Device, Readable):
             )
 
         path = Path(self.file_path.get())
-        file_name = Path(self.file_name.get())
-        self._full_path = str(path / file_name)
-        self._index = 0
-        self._last_emitted_index = 0
-
         # Subscribe to state and live max count exceeded to
         # handle the acquisition status
         self.state.subscribe(self._state_changed, run=False)
         self.live_max_count_exceeded.subscribe(
             self._live_max_count_exceeded_monitor, run=False
         )
-        return super().stage()
+
+        ret = super().stage()
+
+        file_name = Path(self.file_name.get())
+        self._full_path = str(path / file_name)
+        self._index = 0
+        self._last_emitted_index = 0
+
+        return ret
 
     def _state_changed(self, value=None, old_value=None, **kwargs):
         if (
