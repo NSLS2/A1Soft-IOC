@@ -39,7 +39,7 @@ class TestDeviceWithBluesky:
 
         # Configure device for quick acquisition
         device.file_path.set(str(test_output_dir)).wait(5.0)
-        device.file_name.set("test_count.nxs").wait(5.0)
+        device.file_prefix.set("test_count").wait(5.0)
         device.num_scans.set(1).wait(5.0)
 
         # Execute count plan
@@ -69,7 +69,7 @@ class TestDeviceWithBluesky:
 
         # Configure device
         device.file_path.set(str(test_output_dir)).wait(5.0)
-        device.file_name.set("test_staging.nxs").wait(5.0)
+        device.file_prefix.set("test_staging").wait(5.0)
 
         # Initially unstaged
         assert device._staged == Staged.no, "Should start unstaged"
@@ -104,7 +104,7 @@ class TestDeviceWithBluesky:
 
         # Configure device
         device.file_path.set(str(test_output_dir)).wait(5.0)
-        device.file_name.set("test_multi_trigger.nxs").wait(5.0)
+        device.file_prefix.set("test_multi_trigger").wait(5.0)
         device.num_scans.set(1).wait(5.0)
 
         documents = []
@@ -125,7 +125,7 @@ class TestDeviceWithBluesky:
 
         # Configure device
         device.file_path.set(str(test_output_dir)).wait(5.0)
-        device.file_name.set("test_safety_limits.nxs").wait(5.0)
+        device.file_prefix.set("test_safety_limits").wait(5.0)
         device.num_scans.set(1).wait(5.0)
         # Set threshold to -1 to ensure that the safety limits are exceeded
         device.live_max_count_threshold.set(-1).wait(5.0)
@@ -146,7 +146,7 @@ class TestDeviceWithBluesky:
 
         # Configure device
         device.file_path.set(str(test_output_dir)).wait(5.0)
-        device.file_name.set("test_multi_trigger.nxs").wait(5.0)
+        device.file_prefix.set("test_multi_trigger").wait(5.0)
         device.num_scans.set(1).wait(5.0)
 
         documents = []
@@ -168,7 +168,7 @@ class TestDeviceWithBluesky:
         # Configure device
         device.acq_mode.set("Fixed").wait(5.0)
         device.file_path.set(str(test_output_dir)).wait(5.0)
-        device.file_name.set("test_multi_trigger.nxs").wait(5.0)
+        device.file_prefix.set("test_multi_trigger").wait(5.0)
         device.num_scans.set(1).wait(5.0)
 
         documents = []
@@ -190,7 +190,7 @@ class TestDeviceWithBluesky:
         # Configure device
         device.acq_mode.set("Dither").wait(5.0)
         device.file_path.set(str(test_output_dir)).wait(5.0)
-        device.file_name.set("test_dither_scan.nxs").wait(5.0)
+        device.file_prefix.set("test_dither_scan").wait(5.0)
         device.num_scans.set(1).wait(5.0)
         device.dith_steps.set(10).wait(5.0)
 
@@ -213,7 +213,7 @@ class TestDeviceWithBluesky:
         # Configure device
         device.acq_mode.set("FixedTrigd").wait(5.0)
         device.file_path.set(str(test_output_dir)).wait(5.0)
-        device.file_name.set("test_fixed_trigd_scan.nxs").wait(5.0)
+        device.file_prefix.set("test_fixed_trigd_scan").wait(5.0)
         device.num_scans.set(1).wait(5.0)
 
         documents = []
@@ -246,7 +246,7 @@ class TestDeviceWithDatabrokerFilestore:
 
         # Configure device
         device.file_path.set(str(test_output_dir)).wait(5.0)
-        device.file_name.set("test_multi_trigger.nxs").wait(5.0)
+        device.file_prefix.set("test_multi_trigger").wait(5.0)
         device.num_scans.set(1).wait(5.0)
 
         RE.subscribe(db.insert)

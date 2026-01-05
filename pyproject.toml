@@ -57,6 +57,7 @@ pre-commit = "*"
 ruff = "*"
 pyright = "*"
 pytest = "*"
+pytest-asyncio = "*"
 h5py = "*"
 nexpy = ">=1.0.10,<2"
 

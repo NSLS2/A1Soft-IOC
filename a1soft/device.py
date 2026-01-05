@@ -43,8 +43,9 @@ class SpectrumAnalyzer(Device, Readable):
 
     # File writing
     file_capture = Cpt(EpicsSignal, "FILE:CAPTURE")
-    file_name = Cpt(EpicsSignal, "FILE:NAME", string=True)
-    file_path = Cpt(EpicsSignal, "FILE:PATH", string=True)
+    file_prefix = Cpt(EpicsSignal, "FILE:PREFIX", string=True)
+    file_name = Cpt(EpicsSignalRO, "FILE:NAME", string=True, kind="config")
+    file_path = Cpt(EpicsSignal, "FILE:PATH", string=True, kind="config")
     num_captured = Cpt(EpicsSignalRO, "FILE:NUM_CAPTURED")
     num_processed = Cpt(EpicsSignalRO, "FILE:NUM_PROCESSED")
 
@@ -52,30 +53,30 @@ class SpectrumAnalyzer(Device, Readable):
     state = Cpt(EpicsSignalRO, "STATE", string=True)
     endX = Cpt(EpicsSignal, "ENDX")
     startY = Cpt(EpicsSignal, "STARTY")
-    num_slice = Cpt(EpicsSignal, "NUM_SLICE")
+    num_slice = Cpt(EpicsSignal, "NUM_SLICE", kind="config")
     endY = Cpt(EpicsSignal, "ENDY")
     startX = Cpt(EpicsSignal, "STARTX")
-    frames = Cpt(EpicsSignal, "FRAMES")
-    num_steps = Cpt(EpicsSignal, "NUM_STEPS")
-    pass_energy = Cpt(EpicsSignal, "PASS_ENERGY", string=True)
-    lens_mode = Cpt(EpicsSignal, "LENS_MODE", string=True)
-    num_scans = Cpt(EpicsSignal, "NUM_SCANS")
+    frames = Cpt(EpicsSignal, "FRAMES", kind="config")
+    num_steps = Cpt(EpicsSignal, "NUM_STEPS", kind="config")
+    pass_energy = Cpt(EpicsSignal, "PASS_ENERGY", string=True, kind="config")
+    lens_mode = Cpt(EpicsSignal, "LENS_MODE", string=True, kind="config")
+    num_scans = Cpt(EpicsSignal, "NUM_SCANS", kind="config")
     reg_num = Cpt(EpicsSignal, "REG_NUM")
-    tot_steps = Cpt(EpicsSignal, "TOT_STEPS")
+    tot_steps = Cpt(EpicsSignal, "TOT_STEPS", kind="config")
     add_fms = Cpt(EpicsSignal, "ADD_FMS")
     act_scans = Cpt(EpicsSignalRO, "ACT_SCANS")
     dith_steps = Cpt(EpicsSignal, "DITH_STEPS")
-    start_ke = Cpt(EpicsSignal, "START_KE")
-    step_size = Cpt(EpicsSignal, "STEP_SIZE")
-    end_ke = Cpt(EpicsSignal, "END_KE")
+    start_ke = Cpt(EpicsSignal, "START_KE", kind="config")
+    step_size = Cpt(EpicsSignal, "STEP_SIZE", kind="config")
+    end_ke = Cpt(EpicsSignal, "END_KE", kind="config")
     spin_offs = Cpt(EpicsSignal, "SPIN_OFFS")
-    width = Cpt(EpicsSignal, "WIDTH")
-    center_ke = Cpt(EpicsSignal, "CENTER_KE")
+    width = Cpt(EpicsSignal, "WIDTH", kind="config")
+    center_ke = Cpt(EpicsSignal, "CENTER_KE", kind="config")
     first_energy = Cpt(EpicsSignal, "FIRST_ENERGY")
     deflX = Cpt(EpicsSignal, "DEFLX")
     deflY = Cpt(EpicsSignal, "DEFLY")
     dbl10 = Cpt(EpicsSignal, "DBL10")
-    acq_mode = Cpt(EpicsSignal, "ACQ_MODE")
+    acq_mode = Cpt(EpicsSignal, "ACQ_MODE", kind="config")
     date_number = Cpt(EpicsSignal, "DATE_NUMBER")
     loc_det = Cpt(EpicsSignal, "LOC_DET")
     xtab = Cpt(EpicsSignal, "XTAB")
@@ -92,18 +93,18 @@ class SpectrumAnalyzer(Device, Readable):
     pc_mask = Cpt(EpicsSignal, "PC_MASK")
     soft_bin_x = Cpt(EpicsSignal, "SOFT_BIN_X")
     soft_bin_y = Cpt(EpicsSignal, "SOFT_BIN_Y")
-    escale_mult = Cpt(EpicsSignal, "ESCALE_MULT")
-    escale_max = Cpt(EpicsSignal, "ESCALE_MAX")
-    escale_min = Cpt(EpicsSignal, "ESCALE_MIN")
-    yscale_mult = Cpt(EpicsSignal, "YSCALE_MULT")
-    yscale_max = Cpt(EpicsSignal, "YSCALE_MAX")
-    yscale_min = Cpt(EpicsSignal, "YSCALE_MIN")
+    escale_mult = Cpt(EpicsSignal, "ESCALE_MULT", kind="config")
+    escale_max = Cpt(EpicsSignal, "ESCALE_MAX", kind="config")
+    escale_min = Cpt(EpicsSignal, "ESCALE_MIN", kind="config")
+    yscale_mult = Cpt(EpicsSignal, "YSCALE_MULT", kind="config")
+    yscale_max = Cpt(EpicsSignal, "YSCALE_MAX", kind="config")
+    yscale_min = Cpt(EpicsSignal, "YSCALE_MIN", kind="config")
     yscale_name = Cpt(EpicsSignal, "YSCALE_NAME")
-    xscale_mult = Cpt(EpicsSignal, "XSCALE_MULT")
-    xscale_max = Cpt(EpicsSignal, "XSCALE_MAX")
-    xscale_min = Cpt(EpicsSignal, "XSCALE_MIN")
+    xscale_mult = Cpt(EpicsSignal, "XSCALE_MULT", kind="config")
+    xscale_max = Cpt(EpicsSignal, "XSCALE_MAX", kind="config")
+    xscale_min = Cpt(EpicsSignal, "XSCALE_MIN", kind="config")
     xscale_name = Cpt(EpicsSignal, "XSCALE_NAME")
-    psu_mode = Cpt(EpicsSignal, "PSU_MODE")
+    psu_mode = Cpt(EpicsSignal, "PSU_MODE", kind="config")
     over_r_arr = Cpt(EpicsSignal, "OVER_R_ARR")
     over_range = Cpt(EpicsSignal, "OVER_RANGE")
 
@@ -149,18 +150,21 @@ class SpectrumAnalyzer(Device, Readable):
             )
 
         path = Path(self.file_path.get())
-        file_name = Path(self.file_name.get())
-        self._full_path = str(path / file_name)
-        self._index = 0
-        self._last_emitted_index = 0
-
         # Subscribe to state and live max count exceeded to
         # handle the acquisition status
         self.state.subscribe(self._state_changed, run=False)
         self.live_max_count_exceeded.subscribe(
             self._live_max_count_exceeded_monitor, run=False
         )
-        return super().stage()
+
+        ret = super().stage()
+
+        file_name = Path(self.file_name.get())
+        self._full_path = str(path / file_name)
+        self._index = 0
+        self._last_emitted_index = 0
+
+        return ret
 
     def _state_changed(self, value=None, old_value=None, **kwargs):
         if (
