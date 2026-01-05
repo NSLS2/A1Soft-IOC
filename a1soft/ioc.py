@@ -983,10 +983,22 @@ class DetectorWriter:
                 if "data" not in detector:
                     detector["data"] = NXfield(
                         name="data",
-                        shape=(0, first_frame_data["cur_height"], first_frame_data["cur_width"]),
+                        shape=(
+                            0,
+                            first_frame_data["cur_height"],
+                            first_frame_data["cur_width"],
+                        ),
                         dtype=np.uint32,
-                        maxshape=(None, first_frame_data["cur_height"], first_frame_data["cur_width"]),
-                        chunks=(64, first_frame_data["cur_height"], first_frame_data["cur_width"]),
+                        maxshape=(
+                            None,
+                            first_frame_data["cur_height"],
+                            first_frame_data["cur_width"],
+                        ),
+                        chunks=(
+                            64,
+                            first_frame_data["cur_height"],
+                            first_frame_data["cur_width"],
+                        ),
                         compression=hdf5plugin.Blosc(cname="zstd"),
                     )
                 if "deflector_x" not in detector:
@@ -1150,7 +1162,11 @@ class DetectorWriter:
         if all((deflector_x_exists, angles_exists, energies_exists, data_exists)):
             file_handle.entry.data = NXdata(
                 NXlink(analyzer.data),
-                [NXlink(analyzer.deflector_x), NXlink(analyzer.angles), NXlink(analyzer.energies)],
+                [
+                    NXlink(analyzer.deflector_x),
+                    NXlink(analyzer.angles),
+                    NXlink(analyzer.energies),
+                ],
             )
 
     async def close(self) -> None:
