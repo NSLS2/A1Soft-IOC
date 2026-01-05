@@ -8,7 +8,7 @@ from bluesky.protocols import WritesStreamAssets, WritesExternalAssets, Readable
 from bluesky.utils import SyncOrAsyncIterator, StreamAsset, Asset
 from event_model import compose_stream_resource, compose_resource, DataKey
 from area_detector_handlers.handlers import HDF5DatasetSliceHandler
-from ophyd import K, Device, Component as Cpt, EpicsSignal, EpicsSignalRO, Staged
+from ophyd import Device, Component as Cpt, EpicsSignal, EpicsSignalRO, Staged
 from ophyd.status import Status
 
 
