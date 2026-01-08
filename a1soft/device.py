@@ -48,6 +48,7 @@ class SpectrumAnalyzer(Device, Readable):
     file_path = Cpt(EpicsSignal, "FILE:PATH", string=True, kind="config")
     num_captured = Cpt(EpicsSignalRO, "FILE:NUM_CAPTURED")
     num_processed = Cpt(EpicsSignalRO, "FILE:NUM_PROCESSED")
+    total_intensity = Cpt(EpicsSignalRO, "TOTAL_INTENSITY")
 
     # Detector parameters
     state = Cpt(EpicsSignalRO, "STATE", string=True)
