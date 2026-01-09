@@ -1196,7 +1196,9 @@ class DetectorWriter:
         self._aggregate_mode = aggregate_mode
         self._precision = precision
         self._deflx_to_index.clear()
-        logger.info(f"Opening file: {self._full_file_path} (aggregate={aggregate_mode})")
+        logger.info(
+            f"Opening file: {self._full_file_path} (aggregate={aggregate_mode})"
+        )
 
         self._image_queue = asyncio.Queue(maxsize=100)
 
@@ -1378,9 +1380,7 @@ class DetectorIOC(PVGroup):
         enum_strings=("Normal", "Aggregate"),
     )
     """File writing mode: Normal appends all frames, Aggregate sums by deflector_x"""
-    file_aggregate_precision = pvproperty(
-        value=2, name="FILE:AGG_PRECISION", dtype=int
-    )
+    file_aggregate_precision = pvproperty(value=2, name="FILE:AGG_PRECISION", dtype=int)
     """Decimal places for rounding deflector_x when aggregating"""
 
     # Status and info

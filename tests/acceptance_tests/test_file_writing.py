@@ -406,9 +406,7 @@ class TestAggregateMode:
                 )
                 assert analyzer["num_contributions"][i].nxvalue == 1
 
-    def test_aggregate_mode_mixed_revisits(
-        self, detector_in_standby, test_output_dir
-    ):
+    def test_aggregate_mode_mixed_revisits(self, detector_in_standby, test_output_dir):
         """Test aggregation when revisiting angles: A, B, A, B pattern."""
         device = detector_in_standby
 
@@ -445,9 +443,7 @@ class TestAggregateMode:
                 "Second angle should have 2 contributions"
             )
 
-    def test_aggregate_precision_rounding(
-        self, detector_in_standby, test_output_dir
-    ):
+    def test_aggregate_precision_rounding(self, detector_in_standby, test_output_dir):
         """Test that deflector_x values are rounded to precision."""
         device = detector_in_standby
 
