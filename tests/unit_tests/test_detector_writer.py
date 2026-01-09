@@ -365,3 +365,229 @@ class TestLinkResults:
             # Should create NXdata with links
             mock_nxdata.assert_called_once()
             assert mock_nxlink.call_count == 4  # data, deflector_x, angles, energies
+
+
+class TestAggregateMode:
+    """Tests for aggregate file writing mode."""
+
+    @pytest.mark.asyncio
+    async def test_open_sets_aggregate_mode(self, writer, tmp_path):
+        """Verifies open() stores aggregate mode and precision."""
+        with patch("a1soft.ioc.nxopen"):
+            await writer.open(str(tmp_path), "test", aggregate_mode=True, precision=3)
+
+        assert writer._aggregate_mode is True
+        assert writer._precision == 3
+        assert writer._deflx_to_index == {}
+
+        await writer.close()
+
+    @pytest.mark.asyncio
+    async def test_open_defaults_to_normal_mode(self, writer, tmp_path):
+        """Verifies open() defaults to normal mode."""
+        with patch("a1soft.ioc.nxopen"):
+            await writer.open(str(tmp_path), "test")
+
+        assert writer._aggregate_mode is False
+        assert writer._precision == 2
+
+        await writer.close()
+
+    @pytest.mark.asyncio
+    async def test_close_clears_aggregate_state(self, writer, tmp_path):
+        """Verifies close() resets aggregate state."""
+        with patch("a1soft.ioc.nxopen"):
+            await writer.open(str(tmp_path), "test", aggregate_mode=True)
+            writer._deflx_to_index = {1.0: 0, 2.0: 1}
+            await writer.close()
+
+        assert writer._aggregate_mode is False
+        assert writer._deflx_to_index == {}
+
+
+class TestWriteNormal:
+    """Tests for _write_normal() method."""
+
+    def test_write_normal_appends_frames(self, writer, sample_frame_data):
+        """Verifies normal mode appends frames sequentially."""
+        # Create mock fields
+        mock_data = MagicMock()
+        mock_data.shape = [0, 100, 200]
+        mock_deflx = MagicMock()
+        mock_deflx.shape = [0]
+
+        frames = [
+            (0, sample_frame_data),
+            (1, {**sample_frame_data, "deflX": 2.5}),
+        ]
+
+        writer._write_normal(frames, mock_data, mock_deflx)
+
+        # Should resize and write both frames
+        assert mock_data.resize.call_count == 2
+        assert mock_deflx.resize.call_count == 2
+        mock_data.__setitem__.assert_any_call(
+            (0, slice(None), slice(None)), sample_frame_data["channel_2_data"]
+        )
+
+
+class TestWriteAggregate:
+    """Tests for _write_aggregate() method."""
+
+    def test_write_aggregate_new_deflx(self, writer, sample_frame_data):
+        """Verifies new deflector_x values create new entries."""
+        writer._aggregate_mode = True
+        writer._precision = 2
+        writer._deflx_to_index = {}
+
+        mock_data = MagicMock()
+        mock_data.shape = [0, 100, 200]
+        mock_deflx = MagicMock()
+        mock_deflx.shape = [0]
+        mock_contrib = MagicMock()
+        mock_contrib.shape = [0]
+
+        frames = [(0, {**sample_frame_data, "deflX": 1.234})]
+        writer._write_aggregate(frames, mock_data, mock_deflx, mock_contrib)
+
+        # Should create entry at index 0
+        assert writer._deflx_to_index == {1.23: 0}  # rounded to 2 decimals
+        mock_data.resize.assert_called_with(1, axis=0)
+        mock_contrib.__setitem__.assert_called_with(0, 1)
+
+    def test_write_aggregate_same_deflx_sums(self, writer, sample_frame_data):
+        """Verifies same deflector_x values are summed."""
+        writer._aggregate_mode = True
+        writer._precision = 2
+        writer._deflx_to_index = {1.5: 0}
+
+        # Create mock with existing data
+        existing_data = np.ones((100, 200), dtype=np.uint32) * 100
+        mock_existing = MagicMock()
+        mock_existing.nxvalue = existing_data
+
+        mock_data = MagicMock()
+        mock_data.__getitem__ = MagicMock(return_value=mock_existing)
+        mock_deflx = MagicMock()
+
+        mock_contrib_value = MagicMock()
+        mock_contrib_value.nxvalue = 2
+        mock_contrib = MagicMock()
+        mock_contrib.__getitem__ = MagicMock(return_value=mock_contrib_value)
+
+        frames = [(0, sample_frame_data)]  # deflX is 1.5
+        writer._write_aggregate(frames, mock_data, mock_deflx, mock_contrib)
+
+        # Should update existing entry, not create new
+        assert writer._deflx_to_index == {1.5: 0}
+        mock_data.resize.assert_not_called()
+
+        # Should have summed the data
+        call_args = mock_data.__setitem__.call_args
+        written_data = call_args[0][1]
+        expected = existing_data + sample_frame_data["channel_2_data"]
+        np.testing.assert_array_equal(written_data, expected)
+
+        # Contribution count should increment
+        mock_contrib.__setitem__.assert_called_with(0, 3)  # was 2, now 3
+
+    def test_write_aggregate_precision_rounding(self, writer, sample_frame_data):
+        """Verifies deflector_x is rounded to precision."""
+        writer._aggregate_mode = True
+        writer._precision = 1  # 1 decimal place
+        writer._deflx_to_index = {}
+
+        mock_data = MagicMock()
+        mock_data.shape = [0, 100, 200]
+        mock_deflx = MagicMock()
+        mock_deflx.shape = [0]
+        mock_contrib = MagicMock()
+        mock_contrib.shape = [0]
+
+        # 1.54 should round to 1.5, 1.55 should round to 1.6
+        frames = [
+            (0, {**sample_frame_data, "deflX": 1.54}),
+            (1, {**sample_frame_data, "deflX": 1.55}),
+        ]
+        writer._write_aggregate(frames, mock_data, mock_deflx, mock_contrib)
+
+        # Should have 2 distinct entries
+        assert 1.5 in writer._deflx_to_index
+        assert 1.6 in writer._deflx_to_index
+        assert len(writer._deflx_to_index) == 2
+
+    def test_write_aggregate_mixed_new_and_existing(self, writer, sample_frame_data):
+        """Verifies handling of both new and existing deflector_x in same batch."""
+        writer._aggregate_mode = True
+        writer._precision = 2
+        writer._deflx_to_index = {1.0: 0}  # Pre-existing entry
+
+        existing_data = np.zeros((100, 200), dtype=np.uint32)
+        mock_existing = MagicMock()
+        mock_existing.nxvalue = existing_data
+
+        mock_data = MagicMock()
+        mock_data.shape = [1, 100, 200]
+        mock_data.__getitem__ = MagicMock(return_value=mock_existing)
+        mock_deflx = MagicMock()
+        mock_deflx.shape = [1]
+
+        mock_contrib_value = MagicMock()
+        mock_contrib_value.nxvalue = 1
+        mock_contrib = MagicMock()
+        mock_contrib.shape = [1]
+        mock_contrib.__getitem__ = MagicMock(return_value=mock_contrib_value)
+
+        frames = [
+            (0, {**sample_frame_data, "deflX": 1.0}),  # existing
+            (1, {**sample_frame_data, "deflX": 2.0}),  # new
+        ]
+        writer._write_aggregate(frames, mock_data, mock_deflx, mock_contrib)
+
+        # Should have both entries
+        assert writer._deflx_to_index == {1.0: 0, 2.0: 1}
+
+
+class TestTryWriteFramesAggregate:
+    """Tests for _try_write_frames() in aggregate mode."""
+
+    def test_try_write_frames_aggregate_uses_write_aggregate(
+        self, writer, tmp_path, sample_frame_data, mock_nxopen
+    ):
+        """Verifies aggregate mode calls _write_aggregate."""
+        mock_open, mock_file = mock_nxopen
+        writer._full_file_path = tmp_path / "test.nxs"
+        writer._first_write = True
+        writer._aggregate_mode = True
+        writer._precision = 2
+        writer._deflx_to_index = {}
+
+        mock_detector = MagicMock()
+        mock_detector.__contains__ = MagicMock(return_value=False)
+        mock_detector.get = MagicMock(return_value=MagicMock())
+        mock_file.entry.instrument.analyzer = mock_detector
+
+        frames = [(0, sample_frame_data)]
+
+        with patch.object(writer, "_write_aggregate") as mock_write_agg:
+            writer._try_write_frames(frames)
+            mock_write_agg.assert_called_once()
+
+    def test_try_write_frames_normal_uses_write_normal(
+        self, writer, tmp_path, sample_frame_data, mock_nxopen
+    ):
+        """Verifies normal mode calls _write_normal."""
+        mock_open, mock_file = mock_nxopen
+        writer._full_file_path = tmp_path / "test.nxs"
+        writer._first_write = True
+        writer._aggregate_mode = False
+
+        mock_detector = MagicMock()
+        mock_detector.__contains__ = MagicMock(return_value=False)
+        mock_file.entry.instrument.analyzer = mock_detector
+
+        frames = [(0, sample_frame_data)]
+
+        with patch.object(writer, "_write_normal") as mock_write_normal:
+            writer._try_write_frames(frames)
+            mock_write_normal.assert_called_once()
