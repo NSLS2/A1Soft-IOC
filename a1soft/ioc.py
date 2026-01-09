@@ -1387,7 +1387,6 @@ class DetectorIOC(PVGroup):
     )
     """Total intensity (sum of all pixels) from the last requested frame"""
 
-
     # Status and info
     connection_status = pvproperty(value=0, name="SYS:CONNECTED", read_only=True)
     last_sync = pvproperty(
