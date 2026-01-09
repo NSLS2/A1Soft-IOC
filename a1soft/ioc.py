@@ -1365,14 +1365,6 @@ class DetectorIOC(PVGroup):
         dtype=str,
         max_length=1024,
     )
-    num_captured = pvproperty(
-        value=0, name="FILE:NUM_CAPTURED", read_only=True, dtype=int
-    )
-    """Number of images captured while file capture is on"""
-    num_processed = pvproperty(
-        value=0, name="FILE:NUM_PROCESSED", read_only=True, dtype=int
-    )
-    """To track the number of scans processed during a single acquisition"""
     file_mode = pvproperty(
         value="Normal",
         name="FILE:MODE",
@@ -1382,6 +1374,19 @@ class DetectorIOC(PVGroup):
     """File writing mode: Normal appends all frames, Aggregate sums by deflector_x"""
     file_aggregate_precision = pvproperty(value=2, name="FILE:AGG_PRECISION", dtype=int)
     """Decimal places for rounding deflector_x when aggregating"""
+    num_captured = pvproperty(
+        value=0, name="FILE:NUM_CAPTURED", read_only=True, dtype=int
+    )
+    """Number of images captured while file capture is on"""
+    num_processed = pvproperty(
+        value=0, name="FILE:NUM_PROCESSED", read_only=True, dtype=int
+    )
+    """To track the number of scans processed during a single acquisition"""
+    total_intensity = pvproperty(
+        value=0, name="TOTAL_INTENSITY", read_only=True, dtype=int
+    )
+    """Total intensity (sum of all pixels) from the last requested frame"""
+
 
     # Status and info
     connection_status = pvproperty(value=0, name="SYS:CONNECTED", read_only=True)
@@ -1597,6 +1602,7 @@ class DetectorIOC(PVGroup):
             # Note: max_count is now monitored via live data port when live monitoring is enabled
             # This provides much more frequent monitoring for emergency detection
             data["deflX"] = response["values"][0]["value"]
+            await self.total_intensity.write(data["channel_2_sum"])
             return data
         else:
             logger.warning("Failed to read image data")
