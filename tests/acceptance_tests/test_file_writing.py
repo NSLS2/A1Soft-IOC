@@ -316,3 +316,165 @@ class TestFilePathHandling:
         assert not full_path.exists(), (
             "File should not have been created in nested directory"
         )
+
+
+@pytest.mark.skipif(
+    platform.system() != "Windows", reason="Must be run on same server as IOC"
+)
+class TestAggregateMode:
+    """Test aggregate file writing mode."""
+
+    def test_aggregate_mode_sums_same_deflector_x(
+        self, detector_in_standby, test_output_dir
+    ):
+        """Test that frames with same deflector_x are summed."""
+        device = detector_in_standby
+
+        device.num_scans.set(1).wait(5.0)
+
+        # Enable aggregate mode
+        device.file_mode.set("Aggregate").wait(5.0)
+        assert device.file_mode.get(as_string=True) == "Aggregate"
+
+        file_path = str(test_output_dir)
+        file_prefix = "test_aggregate_sum"
+        full_path = test_output_dir / f"{file_prefix}_0001.nxs"
+
+        device.file_path.set(file_path).wait(5.0)
+        device.file_prefix.set(file_prefix).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
+
+        # Run 3 acquisitions at same deflector_x
+        initial_deflx = device.deflX.get()
+        for _ in range(3):
+            device.acquire.set(1).wait(5.0)
+            wait_for_state(device, "RUNNING", timeout=10.0)
+            wait_for_state(device, "STANDBY", timeout=60.0)
+
+        device.file_capture.set("Off").wait(5.0)
+        device.file_mode.set("Normal").wait(5.0)
+
+        # Should have 1 aggregated frame (same deflector_x)
+        with nxopen(full_path, "r") as f:
+            analyzer = f["entry/instrument/analyzer"]
+            assert analyzer["data"].shape[0] == 1, "Should have 1 aggregated frame"
+            assert analyzer["num_contributions"][0].nxvalue == 3, (
+                "Should have 3 contributions"
+            )
+            assert np.isclose(
+                analyzer["deflector_x"][0].nxvalue, round(initial_deflx, 2)
+            )
+
+    def test_aggregate_mode_separates_different_deflector_x(
+        self, detector_in_standby, test_output_dir
+    ):
+        """Test that frames with different deflector_x create separate entries."""
+        device = detector_in_standby
+
+        device.num_scans.set(1).wait(5.0)
+
+        # Enable aggregate mode
+        device.file_mode.set("Aggregate").wait(5.0)
+
+        file_path = str(test_output_dir)
+        file_prefix = "test_aggregate_separate"
+        full_path = test_output_dir / f"{file_prefix}_0001.nxs"
+
+        device.file_path.set(file_path).wait(5.0)
+        device.file_prefix.set(file_prefix).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
+
+        # Run acquisitions at 3 different deflector_x values
+        deflx_values = [0.0, 1.0, 2.0]
+        for deflx in deflx_values:
+            device.deflX.set(deflx).wait(5.0)
+            device.acquire.set(1).wait(5.0)
+            wait_for_state(device, "RUNNING", timeout=10.0)
+            wait_for_state(device, "STANDBY", timeout=60.0)
+
+        device.file_capture.set("Off").wait(5.0)
+        device.file_mode.set("Normal").wait(5.0)
+
+        # Should have 3 separate frames
+        with nxopen(full_path, "r") as f:
+            analyzer = f["entry/instrument/analyzer"]
+            assert analyzer["data"].shape[0] == 3, "Should have 3 separate frames"
+            stored_deflx = analyzer["deflector_x"].nxvalue
+            for i, expected in enumerate(deflx_values):
+                assert np.isclose(stored_deflx[i], expected), (
+                    f"deflector_x[{i}] should be {expected}"
+                )
+                assert analyzer["num_contributions"][i].nxvalue == 1
+
+    def test_aggregate_mode_mixed_revisits(self, detector_in_standby, test_output_dir):
+        """Test aggregation when revisiting angles: A, B, A, B pattern."""
+        device = detector_in_standby
+
+        device.num_scans.set(1).wait(5.0)
+        device.file_mode.set("Aggregate").wait(5.0)
+
+        file_path = str(test_output_dir)
+        file_prefix = "test_aggregate_revisit"
+        full_path = test_output_dir / f"{file_prefix}_0001.nxs"
+
+        device.file_path.set(file_path).wait(5.0)
+        device.file_prefix.set(file_prefix).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
+
+        # A, B, A, B pattern
+        angles = [0.0, 1.0, 0.0, 1.0]
+        for deflx in angles:
+            device.deflX.set(deflx).wait(5.0)
+            device.acquire.set(1).wait(5.0)
+            wait_for_state(device, "RUNNING", timeout=10.0)
+            wait_for_state(device, "STANDBY", timeout=60.0)
+
+        device.file_capture.set("Off").wait(5.0)
+        device.file_mode.set("Normal").wait(5.0)
+
+        # Should have 2 frames with 2 contributions each
+        with nxopen(full_path, "r") as f:
+            analyzer = f["entry/instrument/analyzer"]
+            assert analyzer["data"].shape[0] == 2, "Should have 2 aggregated frames"
+            assert analyzer["num_contributions"][0].nxvalue == 2, (
+                "First angle should have 2 contributions"
+            )
+            assert analyzer["num_contributions"][1].nxvalue == 2, (
+                "Second angle should have 2 contributions"
+            )
+
+    def test_aggregate_precision_rounding(self, detector_in_standby, test_output_dir):
+        """Test that deflector_x values are rounded to precision."""
+        device = detector_in_standby
+
+        device.num_scans.set(1).wait(5.0)
+        device.file_mode.set("Aggregate").wait(5.0)
+        device.file_aggregate_precision.set(1).wait(5.0)  # 1 decimal place
+
+        file_path = str(test_output_dir)
+        file_prefix = "test_aggregate_precision"
+        full_path = test_output_dir / f"{file_prefix}_0001.nxs"
+
+        device.file_path.set(file_path).wait(5.0)
+        device.file_prefix.set(file_prefix).wait(5.0)
+        device.file_capture.set("On").wait(5.0)
+
+        # Values 1.04 and 1.06 should round to 1.0 and 1.1 respectively
+        values = [1.04, 1.06]
+        for deflx in values:
+            device.deflX.set(deflx).wait(5.0)
+            device.acquire.set(1).wait(5.0)
+            wait_for_state(device, "RUNNING", timeout=10.0)
+            wait_for_state(device, "STANDBY", timeout=60.0)
+
+        device.file_capture.set("Off").wait(5.0)
+        device.file_mode.set("Normal").wait(5.0)
+        device.file_aggregate_precision.set(2).wait(5.0)
+
+        with nxopen(full_path, "r") as f:
+            analyzer = f["entry/instrument/analyzer"]
+            # 1.04 rounds to 1.0, 1.06 rounds to 1.1 with precision=1
+            assert analyzer["data"].shape[0] == 2, "Should have 2 frames"
+            stored = sorted(analyzer["deflector_x"].nxvalue)
+            assert np.isclose(stored[0], 1.0), "First should round to 1.0"
+            assert np.isclose(stored[1], 1.1), "Second should round to 1.1"
