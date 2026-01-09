@@ -928,6 +928,10 @@ class DetectorWriter:
         self._image_writer_task: asyncio.Task | None = None
         self._first_write: bool = True  # Track if structure needs initialization
         self._pending_fields: list[tuple[str, np.ndarray, str, str, dict]] = []
+        # Aggregate mode state
+        self._aggregate_mode: bool = False
+        self._precision: int = 2
+        self._deflx_to_index: dict[float, int] = {}
 
     async def write_image(self, index: int, data: dict[str, Any]) -> None:
         """Queue an image for writing."""
@@ -1008,6 +1012,13 @@ class DetectorWriter:
                         dtype=np.float64,
                         maxshape=(None,),
                     )
+                if self._aggregate_mode and "num_contributions" not in detector:
+                    detector["num_contributions"] = NXfield(
+                        name="num_contributions",
+                        shape=(0,),
+                        dtype=np.uint32,
+                        maxshape=(None,),
+                    )
 
                 # Write any pending metadata fields
                 for path, array, name, units, kwargs in self._pending_fields:
@@ -1018,16 +1029,14 @@ class DetectorWriter:
                 # Write all frames
                 data_field = detector["data"]
                 deflx_field = detector["deflector_x"]
+                contrib_field = detector.get("num_contributions")
 
-                for index, data in frames:
-                    size = index + 1
-                    if data_field.shape[0] < size:
-                        data_field.resize(size, axis=0)
-                    if deflx_field.shape[0] < size:
-                        deflx_field.resize(size, axis=0)
-
-                    data_field[index, :, :] = data["channel_2_data"]
-                    deflx_field[index] = data["deflX"]
+                if self._aggregate_mode:
+                    self._write_aggregate(
+                        frames, data_field, deflx_field, contrib_field
+                    )
+                else:
+                    self._write_normal(frames, data_field, deflx_field)
 
                 logger.info(f"Wrote {len(frames)} frame(s) to file")
             return True
@@ -1035,6 +1044,52 @@ class DetectorWriter:
         except (PermissionError, BlockingIOError, OSError) as e:
             logger.debug(f"File locked by reader, will retry: {e}")
             return False
+
+    def _write_normal(
+        self,
+        frames: list[tuple[int, dict[str, Any]]],
+        data_field: NXfield,
+        deflx_field: NXfield,
+    ) -> None:
+        """Write frames in normal (append) mode."""
+        for index, data in frames:
+            size = index + 1
+            if data_field.shape[0] < size:
+                data_field.resize(size, axis=0)
+            if deflx_field.shape[0] < size:
+                deflx_field.resize(size, axis=0)
+            data_field[index, :, :] = data["channel_2_data"]
+            deflx_field[index] = data["deflX"]
+
+    def _write_aggregate(
+        self,
+        frames: list[tuple[int, dict[str, Any]]],
+        data_field: NXfield,
+        deflx_field: NXfield,
+        contrib_field: NXfield,
+    ) -> None:
+        """Write frames in aggregate mode, summing by deflector_x."""
+        for _, data in frames:
+            deflx_raw = data["deflX"]
+            deflx_rounded = round(deflx_raw, self._precision)
+
+            if deflx_rounded in self._deflx_to_index:
+                # Aggregate: add to existing frame
+                idx = self._deflx_to_index[deflx_rounded]
+                existing = data_field[idx, :, :].nxvalue
+                data_field[idx, :, :] = existing + data["channel_2_data"]
+                contrib_field[idx] = contrib_field[idx].nxvalue + 1
+            else:
+                # New deflector_x: append new frame
+                idx = len(self._deflx_to_index)
+                self._deflx_to_index[deflx_rounded] = idx
+                size = idx + 1
+                data_field.resize(size, axis=0)
+                deflx_field.resize(size, axis=0)
+                contrib_field.resize(size, axis=0)
+                data_field[idx, :, :] = data["channel_2_data"]
+                deflx_field[idx] = deflx_rounded
+                contrib_field[idx] = 1
 
     async def _image_writer(self) -> None:
         """Background task that writes frames from queue to file with retry logic."""
@@ -1104,13 +1159,17 @@ class DetectorWriter:
                     max_num = max(max_num, int(match.group(1)))
         return max_num + 1
 
-    async def open(self, path: str, prefix: str) -> str:
+    async def open(
+        self, path: str, prefix: str, aggregate_mode: bool = False, precision: int = 2
+    ) -> str:
         """Initialize file for writing.
 
         Args:
             path: Directory path for the file.
             prefix: File name prefix. The final filename will be {prefix}_NNNN.nxs
                     where NNNN is an auto-incrementing 4-digit number.
+            aggregate_mode: If True, frames are summed by deflector_x value.
+            precision: Decimal places for rounding deflector_x in aggregate mode.
 
         Returns:
             The generated filename (without path).
@@ -1134,7 +1193,10 @@ class DetectorWriter:
         self._full_file_path = path / name
         self._first_write = True
         self._pending_fields.clear()
-        logger.info(f"Opening file: {self._full_file_path}")
+        self._aggregate_mode = aggregate_mode
+        self._precision = precision
+        self._deflx_to_index.clear()
+        logger.info(f"Opening file: {self._full_file_path} (aggregate={aggregate_mode})")
 
         self._image_queue = asyncio.Queue(maxsize=100)
 
@@ -1207,6 +1269,8 @@ class DetectorWriter:
         self._image_writer_task = None
         self._first_write = True
         self._pending_fields.clear()
+        self._aggregate_mode = False
+        self._deflx_to_index.clear()
 
 
 class DetectorIOC(PVGroup):
@@ -1307,6 +1371,17 @@ class DetectorIOC(PVGroup):
         value=0, name="FILE:NUM_PROCESSED", read_only=True, dtype=int
     )
     """To track the number of scans processed during a single acquisition"""
+    file_mode = pvproperty(
+        value="Normal",
+        name="FILE:MODE",
+        dtype=ChannelType.ENUM,
+        enum_strings=("Normal", "Aggregate"),
+    )
+    """File writing mode: Normal appends all frames, Aggregate sums by deflector_x"""
+    file_aggregate_precision = pvproperty(
+        value=2, name="FILE:AGG_PRECISION", dtype=int
+    )
+    """Decimal places for rounding deflector_x when aggregating"""
 
     # Status and info
     connection_status = pvproperty(value=0, name="SYS:CONNECTED", read_only=True)
@@ -1541,8 +1616,12 @@ class DetectorIOC(PVGroup):
             if value == "On":
                 file_path = self.file_path.value
                 file_prefix = self.file_prefix.value
+                aggregate_mode = self.file_mode.value == "Aggregate"
+                precision = int(self.file_aggregate_precision.value)
                 self._written_metadata = False
-                filename = await self.writer.open(file_path, file_prefix)
+                filename = await self.writer.open(
+                    file_path, file_prefix, aggregate_mode, precision
+                )
                 await self.file_name.write(filename)
                 await self.num_captured.write(0)
             else:
