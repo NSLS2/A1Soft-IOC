@@ -1381,11 +1381,11 @@ class DetectorIOC(PVGroup):
     num_processed = pvproperty(
         value=0, name="FILE:NUM_PROCESSED", read_only=True, dtype=int
     )
-    """To track the number of scans processed during a single acquisition"""
+    """To track the number of scans processed during a single acquisition."""
     total_intensity = pvproperty(
-        value=0, name="TOTAL_INTENSITY", read_only=True, dtype=int
+        value=0, name="TOTAL_INTENSITY", read_only=True, dtype=float
     )
-    """Total intensity (sum of all pixels) from the last requested frame"""
+    """Total intensity (sum of all pixels) from the last requested frame. Float dtype to avoid overflow."""
 
     # Status and info
     connection_status = pvproperty(value=0, name="SYS:CONNECTED", read_only=True)
