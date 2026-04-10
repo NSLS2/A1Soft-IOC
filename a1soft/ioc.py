@@ -58,6 +58,8 @@ def _setup_logging() -> None:
 class DetectorTCPClient:
     """TCP client to communicate with LabView detector system using asyncio streams."""
 
+    RESPONSE_TIMEOUT = 30.0  # seconds to wait for a command response
+
     def __init__(
         self,
         host: str = "127.0.0.1",
@@ -278,6 +280,12 @@ class DetectorTCPClient:
 
     async def _cleanup_connections(self) -> None:
         """Helper to close all stream connections and background tasks."""
+        # Cancel all pending command response futures so callers don't hang
+        for future in self._pending_responses.values():
+            if not future.done():
+                future.cancel()
+        self._pending_responses.clear()
+
         # Stop response reader
         self._response_reader_running = False
         if self._response_reader_task:
@@ -646,13 +654,20 @@ class DetectorTCPClient:
 
         # Wait for response from background reader
         try:
-            response = await response_future
+            response = await asyncio.wait_for(
+                response_future, timeout=self.RESPONSE_TIMEOUT
+            )
             return response
         except asyncio.TimeoutError:
             logger.error(f"Timeout waiting for response to {cmd_type} command")
-            # Clean up pending response
             self._pending_responses.pop(cmd_id, None)
             response_future.cancel()
+            return None
+        except asyncio.CancelledError:
+            logger.warning(
+                f"Response cancelled for {cmd_type} command (likely reconnecting)"
+            )
+            self._pending_responses.pop(cmd_id, None)
             return None
 
     async def _read_data(self) -> dict[str, Any] | None:
