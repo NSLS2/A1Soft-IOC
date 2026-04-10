@@ -1,7 +1,7 @@
 """Unit tests for DetectorTCPClient reconnect and timeout behavior."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
