@@ -1,7 +1,7 @@
 """Unit tests for DetectorTCPClient reconnect and timeout behavior."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -129,3 +129,17 @@ async def test_reconnect_unblocks_pending_send_command(tcp_client, mock_json_wri
 
     assert result is None
     assert tcp_client._pending_responses == {}
+
+
+@pytest.mark.asyncio
+async def test_cleanup_connections_drains_data_queues(tcp_client):
+    """_cleanup_connections must drain _data_queue and _live_queue so that
+    consumers don't read stale data from a previous connection session."""
+    tcp_client._data_queue.put_nowait({"stale": "data_frame_1"})
+    tcp_client._data_queue.put_nowait({"stale": "data_frame_2"})
+    tcp_client._live_queue.put_nowait({"stale": "live_frame"})
+
+    await tcp_client._cleanup_connections()
+
+    assert tcp_client._data_queue.empty()
+    assert tcp_client._live_queue.empty()

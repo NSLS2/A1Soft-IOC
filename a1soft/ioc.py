@@ -286,6 +286,19 @@ class DetectorTCPClient:
                 future.cancel()
         self._pending_responses.clear()
 
+        # Drain data queues to discard stale data from previous connection
+        while not self._data_queue.empty():
+            try:
+                self._data_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+        while not self._live_queue.empty():
+            try:
+                self._live_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
         # Stop response reader
         self._response_reader_running = False
         if self._response_reader_task:
@@ -622,12 +635,15 @@ class DetectorTCPClient:
             response_future = asyncio.Future()
             self._pending_responses[cmd_id] = response_future
 
+        # Capture writer reference to detect stale errors after reconnect
+        writer = self.json_writer
+
         # Send command while holding lock, then signal response reader
         async with self._json_lock:
             try:
                 msg: bytes = (cmd + "\r\n").encode()
-                self.json_writer.write(msg)
-                await self.json_writer.drain()
+                writer.write(msg)
+                await writer.drain()
 
             except (
                 ConnectionResetError,
@@ -638,14 +654,18 @@ class DetectorTCPClient:
                 logger.warning(f"Connection error sending command: {e}")
                 # Clean up pending response
                 self._pending_responses.pop(cmd_id, None)
-                response_future.cancel()
-                self._trigger_reconnect()
+                if get_response:
+                    response_future.cancel()
+                # Only trigger reconnect if we're still on the same connection
+                if self.json_writer is writer:
+                    self._trigger_reconnect()
                 return None
             except Exception as e:
                 logger.error(f"Command failed: {e}")
                 # Clean up pending response
                 self._pending_responses.pop(cmd_id, None)
-                response_future.cancel()
+                if get_response:
+                    response_future.cancel()
                 return None
 
         # Return immediately if no response needed
