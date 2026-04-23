@@ -58,6 +58,8 @@ def _setup_logging() -> None:
 class DetectorTCPClient:
     """TCP client to communicate with LabView detector system using asyncio streams."""
 
+    RESPONSE_TIMEOUT = 30.0  # seconds to wait for a command response
+
     def __init__(
         self,
         host: str = "127.0.0.1",
@@ -278,6 +280,25 @@ class DetectorTCPClient:
 
     async def _cleanup_connections(self) -> None:
         """Helper to close all stream connections and background tasks."""
+        # Cancel all pending command response futures so callers don't hang
+        for future in self._pending_responses.values():
+            if not future.done():
+                future.cancel()
+        self._pending_responses.clear()
+
+        # Drain data queues to discard stale data from previous connection
+        while not self._data_queue.empty():
+            try:
+                self._data_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+        while not self._live_queue.empty():
+            try:
+                self._live_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
         # Stop response reader
         self._response_reader_running = False
         if self._response_reader_task:
@@ -614,12 +635,15 @@ class DetectorTCPClient:
             response_future = asyncio.Future()
             self._pending_responses[cmd_id] = response_future
 
+        # Capture writer reference to detect stale errors after reconnect
+        writer = self.json_writer
+
         # Send command while holding lock, then signal response reader
         async with self._json_lock:
             try:
                 msg: bytes = (cmd + "\r\n").encode()
-                self.json_writer.write(msg)
-                await self.json_writer.drain()
+                writer.write(msg)
+                await writer.drain()
 
             except (
                 ConnectionResetError,
@@ -630,14 +654,18 @@ class DetectorTCPClient:
                 logger.warning(f"Connection error sending command: {e}")
                 # Clean up pending response
                 self._pending_responses.pop(cmd_id, None)
-                response_future.cancel()
-                self._trigger_reconnect()
+                if get_response:
+                    response_future.cancel()
+                # Only trigger reconnect if we're still on the same connection
+                if self.json_writer is writer:
+                    self._trigger_reconnect()
                 return None
             except Exception as e:
                 logger.error(f"Command failed: {e}")
                 # Clean up pending response
                 self._pending_responses.pop(cmd_id, None)
-                response_future.cancel()
+                if get_response:
+                    response_future.cancel()
                 return None
 
         # Return immediately if no response needed
@@ -646,13 +674,20 @@ class DetectorTCPClient:
 
         # Wait for response from background reader
         try:
-            response = await response_future
+            response = await asyncio.wait_for(
+                response_future, timeout=self.RESPONSE_TIMEOUT
+            )
             return response
         except asyncio.TimeoutError:
             logger.error(f"Timeout waiting for response to {cmd_type} command")
-            # Clean up pending response
             self._pending_responses.pop(cmd_id, None)
             response_future.cancel()
+            return None
+        except asyncio.CancelledError:
+            logger.warning(
+                f"Response cancelled for {cmd_type} command (likely reconnecting)"
+            )
+            self._pending_responses.pop(cmd_id, None)
             return None
 
     async def _read_data(self) -> dict[str, Any] | None:
