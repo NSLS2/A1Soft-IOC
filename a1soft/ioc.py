@@ -1547,6 +1547,10 @@ class DetectorIOC(PVGroup):
     psu_mode = pvproperty(name="PSU_MODE", dtype=ChannelType.STRING, read_only=True)
     over_r_arr = pvproperty(name="OVER_R_ARR", dtype=ChannelType.STRING, read_only=True)
     over_range = pvproperty(name="OVER_RANGE", dtype=int, read_only=True)
+    slit_no = pvproperty(put=_param_write, name="SLIT_NO", dtype=int)
+    connection = pvproperty(
+        put=_param_write, name="CONNECTION", dtype=ChannelType.STRING
+    )
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -1620,6 +1624,8 @@ class DetectorIOC(PVGroup):
             self.psu_mode: "PsuMode",
             self.over_r_arr: "OverRArr",
             self.over_range: "OverRange",
+            self.slit_no: "SlitNo",
+            self.connection: "Connection",
         }
         self._param_names_to_pvs = {v: k for k, v in self._pvs_to_param_names.items()}
 
