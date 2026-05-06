@@ -110,6 +110,8 @@ class SpectrumAnalyzer(Device, Readable):
     psu_mode = Cpt(EpicsSignal, "PSU_MODE", kind="config")
     over_r_arr = Cpt(EpicsSignal, "OVER_R_ARR")
     over_range = Cpt(EpicsSignal, "OVER_RANGE")
+    slit_no = Cpt(EpicsSignal, "SLIT_NO", kind="config")
+    connection = Cpt(EpicsSignal, "CONNECTION", kind="config")
 
     _min_frames = 100
     """TCP server can't keep up with frame rate faster than this value in non-swept mode"""
