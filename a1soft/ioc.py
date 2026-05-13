@@ -1547,7 +1547,7 @@ class DetectorIOC(PVGroup):
     psu_mode = pvproperty(name="PSU_MODE", dtype=ChannelType.STRING, read_only=True)
     over_r_arr = pvproperty(name="OVER_R_ARR", dtype=ChannelType.STRING, read_only=True)
     over_range = pvproperty(name="OVER_RANGE", dtype=int, read_only=True)
-    slit_no = pvproperty(put=_param_write, name="SLIT_NO", dtype=int)
+    slit_no = pvproperty(put=_param_write, name="SLIT_NO", dtype=ChannelType.STRING)
     connection = pvproperty(
         put=_param_write, name="CONNECTION", dtype=ChannelType.STRING
     )
