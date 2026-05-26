@@ -1681,6 +1681,11 @@ class DetectorIOC(PVGroup):
         )
         self._written_metadata = True
 
+    async def _wait_for_state(self, target_state: str) -> None:
+        """Wait for detector state to reach target state with polling."""
+        while self.state.value != target_state:
+            await asyncio.sleep(0.05)
+
     @act_scans.scan(period=0.05)
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for acutal number of scans completed."""
@@ -1858,15 +1863,28 @@ class DetectorIOC(PVGroup):
                             "If it is safe to do so, reset the max count exceeded flag."
                         )
                     )
+                # Set acquisition_status to 1 to enable frequent state polling
+                await self.acquisition_status.write(1)
+                # Wait for detector to be in STANDBY state before starting
+                try:
+                    await asyncio.wait_for(
+                        self._wait_for_state("STANDBY"),
+                        timeout=5.0
+                    )
+                except asyncio.TimeoutError:
+                    await self.acquisition_status.write(0)
+                    raise RuntimeError(
+                        "Detector did not reach STANDBY state within 5s, aborting acquisition"
+                    )
                 response: dict[str, Any] | None = await self.tcp_client.send_command(
                     "ACTION", action="START"
                 )
                 if response:
                     logger.info("Acquisition started")
-                    await self.acquisition_status.write(1)
                     await self.num_processed.write(0)
                 else:
                     logger.error("Failed to start acquisition")
+                    await self.acquisition_status.write(0)
                     return 0
             else:
                 # Check if acquisition finished naturally (state transitioned to STANDBY)
