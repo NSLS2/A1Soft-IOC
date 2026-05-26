@@ -1544,6 +1544,9 @@ class DetectorIOC(PVGroup):
         # Track if metadata has been written to file or not
         self._written_metadata: bool = False
 
+        # Flag to indicate acquisition finished naturally (state transition to STANDBY)
+        self._natural_acquisition_finish: bool = False
+
         # Convenience mappings for parameter names to PVs and vice versa
         self._pvs_to_param_names: dict[PvpropertyData, str] = {
             self.state: "state",
@@ -1766,19 +1769,23 @@ class DetectorIOC(PVGroup):
             if (
                 value == "STANDBY"
                 and instance.value in ("RUNNING", "MOVING")
-                and self.file_capture.value == "On"
+                and self.acquire.value == 1
             ):
-                # Don't want to stop file capture before writing the frames to the file
-                async with self._file_capture_lock:
-                    index = self.num_captured.value
-                    data = await self._get_current_frame()
-                    await self.writer.write_image(index, data)
-                    # Capture metadata for the first frame
-                    if not self._written_metadata:
-                        self._write_metadata()
-                    await self.num_captured.write(index + 1)
-                    logger.info(f"Committing frame {self.num_captured.value} to file")
-            if value == "STANDBY" and self.acquire.value == 1:
+                if self.file_capture.value == "On":
+                    # Don't want to stop file capture before writing the frames to the file
+                    async with self._file_capture_lock:
+                        index = self.num_captured.value
+                        data = await self._get_current_frame()
+                        await self.writer.write_image(index, data)
+                        # Capture metadata for the first frame
+                        if not self._written_metadata:
+                            self._write_metadata()
+                        await self.num_captured.write(index + 1)
+                        logger.info(
+                            f"Committing frame {self.num_captured.value} to file"
+                        )
+                # Signal to acquire putter that acquisition finished naturally
+                self._natural_acquisition_finish = True
                 await self.acquire.write(0)
             return value
 
@@ -1862,7 +1869,13 @@ class DetectorIOC(PVGroup):
                     logger.error("Failed to start acquisition")
                     return 0
             else:
-                async with self._state_lock:
+                # Check if acquisition finished naturally (state transitioned to STANDBY)
+                if self._natural_acquisition_finish:
+                    # Clear the flag and skip sending STOP
+                    self._natural_acquisition_finish = False
+                    logger.info("Acquisition finished naturally, skipping STOP command")
+                else:
+                    # Acquisition is being interrupted, send STOP command
                     if self.state.value != "STANDBY":
                         response: (
                             dict[str, Any] | None
