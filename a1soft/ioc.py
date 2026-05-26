@@ -1341,6 +1341,16 @@ class DetectorIOC(PVGroup):
             logger.warning(
                 f"Failed to set {param_name} to {value}, was set to {actual_value} instead."
             )
+
+        # If not in Fixed mode, wait for state to settle back to STANDBY
+        if self.acq_mode.value != "Fixed":
+            try:
+                await asyncio.wait_for(self._wait_for_state("STANDBY"), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Parameter {param_name} set but detector did not return to STANDBY within 5s"
+                )
+
         return actual_value
 
     # Acquisition control
@@ -1682,8 +1692,17 @@ class DetectorIOC(PVGroup):
         self._written_metadata = True
 
     async def _wait_for_state(self, target_state: str) -> None:
-        """Wait for detector state to reach target state with polling."""
-        while self.state.value != target_state:
+        """Wait for detector state to reach target state by actively polling."""
+        while self.tcp_client.connected:
+            response = await self.tcp_client.get_parameter(
+                self._pvs_to_param_names[self.state]
+            )
+            if response and "values" in response:
+                current_state = response["values"][0]["value"]
+                if current_state == target_state:
+                    # Also update the local PV for consistency
+                    await self.state.write(current_state)
+                    return
             await asyncio.sleep(0.05)
 
     @act_scans.scan(period=0.05)
@@ -1863,28 +1882,15 @@ class DetectorIOC(PVGroup):
                             "If it is safe to do so, reset the max count exceeded flag."
                         )
                     )
-                # Set acquisition_status to 1 to enable frequent state polling
-                await self.acquisition_status.write(1)
-                # Wait for detector to be in STANDBY state before starting
-                try:
-                    await asyncio.wait_for(
-                        self._wait_for_state("STANDBY"),
-                        timeout=5.0
-                    )
-                except asyncio.TimeoutError:
-                    await self.acquisition_status.write(0)
-                    raise RuntimeError(
-                        "Detector did not reach STANDBY state within 5s, aborting acquisition"
-                    )
                 response: dict[str, Any] | None = await self.tcp_client.send_command(
                     "ACTION", action="START"
                 )
                 if response:
                     logger.info("Acquisition started")
+                    await self.acquisition_status.write(1)
                     await self.num_processed.write(0)
                 else:
                     logger.error("Failed to start acquisition")
-                    await self.acquisition_status.write(0)
                     return 0
             else:
                 # Check if acquisition finished naturally (state transitioned to STANDBY)
