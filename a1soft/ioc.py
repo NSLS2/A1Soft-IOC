@@ -1448,32 +1448,12 @@ class DetectorIOC(PVGroup):
     pass_energy = pvproperty(
         put=_param_write,
         name="PASS_ENERGY",
-        dtype=ChannelType.ENUM,
-        enum_strings=(
-            "PE001",
-            "PE002",
-            "PE005",
-            "PE010",
-            "PE020",
-            "PE030",
-            "PE050",
-            "PE100",
-            "PE200",
-        ),
+        dtype=ChannelType.STRING,
     )
     lens_mode = pvproperty(
         put=_param_write,
         name="LENS_MODE",
-        dtype=ChannelType.ENUM,
-        enum_strings=(
-            "L4Ang0d6",
-            "L4Ang0d8",
-            "L4Ang1d6",
-            "L4Ang3d9",
-            "L4MAng0d7",
-            "L4MSpat5",
-            "L4Spat5",
-        ),
+        dtype=ChannelType.STRING,
     )
     num_scans = pvproperty(put=_param_write, name="NUM_SCANS", dtype=int)
     reg_num = pvproperty(name="REG_NUM", dtype=int, read_only=True)
@@ -1494,8 +1474,7 @@ class DetectorIOC(PVGroup):
     acq_mode = pvproperty(
         put=_param_write,
         name="ACQ_MODE",
-        dtype=ChannelType.ENUM,
-        enum_strings=("Fixed", "FixedTrigd", "Swept", "Dither"),
+        dtype=ChannelType.STRING,
     )
     date_number = pvproperty(
         name="DATE_NUMBER", enum_strings=("FALSE", "TRUE"), dtype=bool, read_only=True
@@ -1728,8 +1707,8 @@ class DetectorIOC(PVGroup):
                             # it contains the cumulative sum of the frames in one acquisition.
                             # But intermediate frames are still useful in-case of an error during acquisition.
                             # Therefore, we try to get the intermediate frame with a timeout.
-                            index = self.num_captured.value
                             if act_scans_value < self.num_scans.value:
+                                index = self.num_captured.value
                                 try:
                                     data = await asyncio.wait_for(
                                         self._get_current_frame(), timeout=0.1
@@ -1741,16 +1720,6 @@ class DetectorIOC(PVGroup):
                                     logger.warning(
                                         "Failed to get current frame in 100ms, skipping current frame"
                                     )
-                            else:
-                                data = await self._get_current_frame()
-                                await self.writer.write_image(index, data)
-                                # Capture metadata for the first frame
-                                if not self._written_metadata:
-                                    self._write_metadata()
-                                await self.num_captured.write(index + 1)
-                                logger.info(
-                                    f"Committing frame {self.num_captured.value} to file"
-                                )
                     await self.num_processed.write(self.num_processed.value + 1)
             else:
                 logger.error(f"Failed to get actual number of scans, got: {response}")
@@ -1794,6 +1763,21 @@ class DetectorIOC(PVGroup):
     ) -> Literal["STANDBY", "RUNNING", "MOVING"]:
         """Set the state of the detector."""
         async with self._state_lock:
+            if (
+                value == "STANDBY"
+                and instance.value in ("RUNNING", "MOVING")
+                and self.file_capture.value == "On"
+            ):
+                # Don't want to stop file capture before writing the frames to the file
+                async with self._file_capture_lock:
+                    index = self.num_captured.value
+                    data = await self._get_current_frame()
+                    await self.writer.write_image(index, data)
+                    # Capture metadata for the first frame
+                    if not self._written_metadata:
+                        self._write_metadata()
+                    await self.num_captured.write(index + 1)
+                    logger.info(f"Committing frame {self.num_captured.value} to file")
             if value == "STANDBY" and self.acquire.value == 1:
                 await self.acquire.write(0)
             return value
@@ -1878,15 +1862,17 @@ class DetectorIOC(PVGroup):
                     logger.error("Failed to start acquisition")
                     return 0
             else:
-                response: dict[str, Any] | None = await self.tcp_client.send_command(
-                    "ACTION", action="STOP"
-                )
-                if response:
-                    await self.acquisition_status.write(0)
-                    logger.info("Acquisition stopped")
-                else:
-                    logger.error("Failed to stop acquisition")
-                    return instance.value
+                async with self._state_lock:
+                    if self.state.value != "STANDBY":
+                        response: (
+                            dict[str, Any] | None
+                        ) = await self.tcp_client.send_command("ACTION", action="STOP")
+                        if response:
+                            await self.acquisition_status.write(0)
+                            logger.info("Acquisition stopped")
+                        else:
+                            logger.error("Failed to stop acquisition")
+                            return instance.value
 
             return value
 
