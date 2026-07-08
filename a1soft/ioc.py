@@ -1787,7 +1787,11 @@ class DetectorIOC(PVGroup):
     @act_scans.scan(period=0.05)
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for acutal number of scans completed."""
-        if self.acquisition_status.value == 1 and self.tcp_client.connected:
+        if (
+            self.acquisition_status.value == 1
+            and self.state.value in ("RUNNING", "MOVING")
+            and self.tcp_client.connected
+        ):
             num_processed = self.num_processed.value
 
             # Get actScans parameter
@@ -1875,7 +1879,7 @@ class DetectorIOC(PVGroup):
             if (
                 value == "STANDBY"
                 and instance.value in ("RUNNING", "MOVING")
-                and self.acquire.value == 1
+                and self.acquisition_status.value == 1
             ):
                 logger.info(
                     f"[DEBUG] state putter: Conditions met for final frame capture (STANDBY after {instance.value})"
@@ -2003,16 +2007,17 @@ class DetectorIOC(PVGroup):
                     logger.info(
                         f"[DEBUG] acquire putter: Sending START command to detector"
                     )
+                    await self.num_processed.write(0)
+                    await self.acquisition_status.write(1)
                     response: (
                         dict[str, Any] | None
                     ) = await self.tcp_client.send_command("ACTION", action="START")
                 if response:
                     logger.info("Acquisition started")
-                    await self.acquisition_status.write(1)
-                    await self.num_processed.write(0)
                     logger.info(f"[DEBUG] acquire putter: acquisition_status set to 1")
                 else:
                     logger.error("Failed to start acquisition")
+                    await self.acquisition_status.write(0)
                     return 0
             else:
                 # Check if acquisition finished naturally (state transitioned to STANDBY)
