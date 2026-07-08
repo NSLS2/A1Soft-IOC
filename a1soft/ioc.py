@@ -1320,10 +1320,14 @@ class DetectorIOC(PVGroup):
         ):
             return instance.value
         param_name = self._pvs_to_param_names[instance]
+        logger.info(f"[DEBUG] _param_write START: param={param_name}, value={value}, acq_mode={self.acq_mode.value}, current_state={self.state.value}")
+        
         response = await self.tcp_client.set_parameter(param_name, value)
         if not response:
             logger.error(f"Failed to set {param_name} to {value}")
             return None
+        logger.info(f"[DEBUG] _param_write: set_parameter succeeded for {param_name}")
+        
         response = await self.tcp_client.get_parameter(param_name)
         if not response:
             logger.error(f"Failed to get new value of {param_name}")
@@ -1344,13 +1348,18 @@ class DetectorIOC(PVGroup):
 
         # If not in Fixed mode, wait for state to settle back to STANDBY
         if self.acq_mode.value != "Fixed":
+            logger.info(f"[DEBUG] _param_write: Waiting for STANDBY (not in Fixed mode)...")
             try:
                 await asyncio.wait_for(self._wait_for_state("STANDBY"), timeout=5.0)
+                logger.info(f"[DEBUG] _param_write: Successfully reached STANDBY for {param_name}")
             except asyncio.TimeoutError:
                 logger.warning(
                     f"Parameter {param_name} set but detector did not return to STANDBY within 5s"
                 )
+        else:
+            logger.info(f"[DEBUG] _param_write: In Fixed mode, skipping STANDBY wait")
 
+        logger.info(f"[DEBUG] _param_write END: param={param_name}, returning {actual_value}")
         return actual_value
 
     # Acquisition control
@@ -1693,16 +1702,24 @@ class DetectorIOC(PVGroup):
 
     async def _wait_for_state(self, target_state: str) -> None:
         """Wait for detector state to reach target state by actively polling."""
+        logger.info(f"[DEBUG] _wait_for_state START: waiting for {target_state}, current state={self.state.value}")
+        poll_count = 0
         while self.tcp_client.connected:
+            poll_count += 1
             response = await self.tcp_client.get_parameter(
                 self._pvs_to_param_names[self.state]
             )
             if response and "values" in response:
                 current_state = response["values"][0]["value"]
+                if poll_count % 10 == 0:  # Log every 10th poll to avoid spam
+                    logger.debug(f"[DEBUG] _wait_for_state poll #{poll_count}: state={current_state}, target={target_state}")
                 if current_state == target_state:
                     # Also update the local PV for consistency
                     await self.state.write(current_state)
+                    logger.info(f"[DEBUG] _wait_for_state SUCCESS: reached {target_state} after {poll_count} polls")
                     return
+            else:
+                logger.warning(f"[DEBUG] _wait_for_state poll #{poll_count}: Failed to get state response")
             await asyncio.sleep(0.05)
 
     @act_scans.scan(period=0.05)
@@ -1789,14 +1806,17 @@ class DetectorIOC(PVGroup):
         self, instance: Any, value: Literal["STANDBY", "RUNNING", "MOVING"]
     ) -> Literal["STANDBY", "RUNNING", "MOVING"]:
         """Set the state of the detector."""
+        logger.info(f"[DEBUG] state putter called: {instance.value} -> {value}, acquire={self.acquire.value}, file_capture={self.file_capture.value}")
         async with self._state_lock:
             if (
                 value == "STANDBY"
                 and instance.value in ("RUNNING", "MOVING")
                 and self.acquire.value == 1
             ):
+                logger.info(f"[DEBUG] state putter: Conditions met for final frame capture (STANDBY after {instance.value})")
                 if self.file_capture.value == "On":
                     # Don't want to stop file capture before writing the frames to the file
+                    logger.info(f"[DEBUG] state putter: File capture is ON, writing final frame")
                     async with self._file_capture_lock:
                         index = self.num_captured.value
                         data = await self._get_current_frame()
@@ -1808,9 +1828,15 @@ class DetectorIOC(PVGroup):
                         logger.info(
                             f"Committing frame {self.num_captured.value} to file"
                         )
+                else:
+                    logger.info(f"[DEBUG] state putter: File capture is OFF, skipping frame write")
                 # Signal to acquire putter that acquisition finished naturally
                 self._natural_acquisition_finish = True
+                logger.info(f"[DEBUG] state putter: Set _natural_acquisition_finish=True, writing acquire=0")
                 await self.acquire.write(0)
+            else:
+                if value == "STANDBY":
+                    logger.debug(f"[DEBUG] state putter: STANDBY transition but conditions not met (old_state={instance.value}, acquire={self.acquire.value}, file_capture={self.file_capture.value})")
             return value
 
     @connection_status.startup
@@ -1868,6 +1894,7 @@ class DetectorIOC(PVGroup):
     @acquire.putter
     async def acquire(self, instance: Any, value: int) -> int:
         """Start acquisition when PV is written to."""
+        logger.info(f"[DEBUG] acquire putter called: {instance.value} -> {value}")
         async with self._acquire_lock:
             if instance.value == value:
                 msg = f"Acquire is already '{value}'"
@@ -1875,6 +1902,7 @@ class DetectorIOC(PVGroup):
                 return value
 
             if value > 0:
+                logger.info(f"[DEBUG] acquire putter: Starting acquisition (max_count_exceeded={self.max_count_exceeded.value})")
                 if self.max_count_exceeded.value == "Yes":
                     raise RuntimeError(
                         (
@@ -1882,6 +1910,7 @@ class DetectorIOC(PVGroup):
                             "If it is safe to do so, reset the max count exceeded flag."
                         )
                     )
+                logger.info(f"[DEBUG] acquire putter: Sending START command to detector")
                 response: dict[str, Any] | None = await self.tcp_client.send_command(
                     "ACTION", action="START"
                 )
@@ -1889,18 +1918,22 @@ class DetectorIOC(PVGroup):
                     logger.info("Acquisition started")
                     await self.acquisition_status.write(1)
                     await self.num_processed.write(0)
+                    logger.info(f"[DEBUG] acquire putter: acquisition_status set to 1")
                 else:
                     logger.error("Failed to start acquisition")
                     return 0
             else:
                 # Check if acquisition finished naturally (state transitioned to STANDBY)
+                logger.info(f"[DEBUG] acquire putter: Stopping acquisition (_natural_acquisition_finish={self._natural_acquisition_finish}, state={self.state.value})")
                 if self._natural_acquisition_finish:
                     # Clear the flag and skip sending STOP
                     self._natural_acquisition_finish = False
                     logger.info("Acquisition finished naturally, skipping STOP command")
                 else:
                     # Acquisition is being interrupted, send STOP command
+                    logger.info(f"[DEBUG] acquire putter: Acquisition is being interrupted")
                     if self.state.value != "STANDBY":
+                        logger.info(f"[DEBUG] acquire putter: State is {self.state.value}, sending STOP")
                         response: (
                             dict[str, Any] | None
                         ) = await self.tcp_client.send_command("ACTION", action="STOP")
@@ -1910,6 +1943,8 @@ class DetectorIOC(PVGroup):
                         else:
                             logger.error("Failed to stop acquisition")
                             return instance.value
+                    else:
+                        logger.info(f"[DEBUG] acquire putter: State is STANDBY, skipping STOP")
 
             return value
 
