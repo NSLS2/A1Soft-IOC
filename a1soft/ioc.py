@@ -1315,41 +1315,52 @@ class DetectorIOC(PVGroup):
 
     async def _param_write(self, instance: PvpropertyData, value: Any) -> Any:
         """Set a detector parameter and return the value that was actually set."""
-        if (isinstance(value, float) and np.isclose(instance.value, value)) or (
-            not isinstance(value, float) and instance.value == value
-        ):
-            return instance.value
         param_name = self._pvs_to_param_names[instance]
-        response = await self.tcp_client.set_parameter(param_name, value)
-        if not response:
-            logger.error(f"Failed to set {param_name} to {value}")
-            return None
-        response = await self.tcp_client.get_parameter(param_name)
-        if not response:
-            logger.error(f"Failed to get new value of {param_name}")
-            return None
-        result = next(
-            (item for item in response["values"] if item["name"] == param_name), None
-        )
-        if not result:
-            logger.error(f"Failed to get new value of {param_name}")
-            return None
-        actual_value = result["value"]
-        if (
-            isinstance(actual_value, float) and not np.isclose(actual_value, value)
-        ) or (not isinstance(actual_value, float) and actual_value != value):
-            logger.warning(
-                f"Failed to set {param_name} to {value}, was set to {actual_value} instead."
-            )
 
-        # If not in Fixed mode, wait for state to settle back to STANDBY
-        if self.acq_mode.value != "Fixed":
+        async with self._detector_ready_lock:
+            if self.acquire.value == 1 or self.acquisition_status.value == 1:
+                raise RuntimeError(
+                    f"Cannot set detector parameter {param_name} while acquisition is active"
+                )
+
+            state = await self._get_detector_state()
+            if state == "RUNNING":
+                raise RuntimeError(
+                    f"Cannot set detector parameter {param_name} while acquisition is running"
+                )
+            if state != "STANDBY":
+                try:
+                    await asyncio.wait_for(self._wait_for_state("STANDBY"), timeout=5.0)
+                except asyncio.TimeoutError as e:
+                    raise RuntimeError(
+                        f"Cannot set {param_name}: detector did not reach STANDBY within 5s"
+                    ) from e
+
+            current_value = await self._get_detector_parameter_value(param_name)
+            if current_value is None:
+                return None
+            if self._values_match(current_value, value):
+                return current_value
+
+            response = await self.tcp_client.set_parameter(param_name, value)
+            if not response:
+                logger.error(f"Failed to set {param_name} to {value}")
+                return None
+
+            actual_value = await self._get_detector_parameter_value(param_name)
+            if actual_value is None:
+                return None
+            if not self._values_match(actual_value, value):
+                logger.warning(
+                    f"Failed to set {param_name} to {value}, was set to {actual_value} instead."
+                )
+
             try:
                 await asyncio.wait_for(self._wait_for_state("STANDBY"), timeout=5.0)
-            except asyncio.TimeoutError:
-                logger.warning(
+            except asyncio.TimeoutError as e:
+                raise RuntimeError(
                     f"Parameter {param_name} set but detector did not return to STANDBY within 5s"
-                )
+                ) from e
 
         return actual_value
 
@@ -1547,6 +1558,7 @@ class DetectorIOC(PVGroup):
         self.writer: DetectorWriter = DetectorWriter()
         self._state_lock = asyncio.Lock()
         self._acquire_lock = asyncio.Lock()
+        self._detector_ready_lock = asyncio.Lock()
         self._file_capture_lock = asyncio.Lock()
         self._live_monitor_lock = asyncio.Lock()
         self._count_queue_lock = asyncio.Lock()
@@ -1691,6 +1703,38 @@ class DetectorIOC(PVGroup):
         )
         self._written_metadata = True
 
+    def _values_match(self, current_value: Any, requested_value: Any) -> bool:
+        if isinstance(current_value, float) or isinstance(requested_value, float):
+            try:
+                return bool(np.isclose(current_value, requested_value))
+            except TypeError:
+                return False
+        return current_value == requested_value
+
+    async def _get_detector_parameter_value(self, param_name: str) -> Any:
+        response = await self.tcp_client.get_parameter(param_name)
+        if not response:
+            logger.error(f"Failed to get new value of {param_name}")
+            return None
+        result = next(
+            (item for item in response["values"] if item["name"] == param_name), None
+        )
+        if not result:
+            logger.error(f"Failed to get new value of {param_name}")
+            return None
+        return result["value"]
+
+    async def _get_detector_state(self) -> str | None:
+        response = await self.tcp_client.get_parameter(
+            self._pvs_to_param_names[self.state]
+        )
+        if response and "values" in response:
+            state = response["values"][0]["value"]
+            await self.state.write(state)
+            return state
+        logger.warning(f"Failed to get detector state response: {response}")
+        return None
+
     async def _wait_for_state(self, target_state: str) -> None:
         """Wait for detector state to reach target state by actively polling."""
         while self.tcp_client.connected:
@@ -1708,7 +1752,11 @@ class DetectorIOC(PVGroup):
     @act_scans.scan(period=0.05)
     async def act_scans(self, instance: PvpropertyData, async_lib: Any) -> Any:
         """Scan for acutal number of scans completed."""
-        if self.acquisition_status.value == 1 and self.tcp_client.connected:
+        if (
+            self.acquisition_status.value == 1
+            and self.state.value in ("RUNNING", "MOVING")
+            and self.tcp_client.connected
+        ):
             num_processed = self.num_processed.value
 
             # Get actScans parameter
@@ -1793,7 +1841,7 @@ class DetectorIOC(PVGroup):
             if (
                 value == "STANDBY"
                 and instance.value in ("RUNNING", "MOVING")
-                and self.acquire.value == 1
+                and self.acquisition_status.value == 1
             ):
                 if self.file_capture.value == "On":
                     # Don't want to stop file capture before writing the frames to the file
@@ -1882,21 +1930,34 @@ class DetectorIOC(PVGroup):
                             "If it is safe to do so, reset the max count exceeded flag."
                         )
                     )
-                response: dict[str, Any] | None = await self.tcp_client.send_command(
-                    "ACTION", action="START"
-                )
+                async with self._detector_ready_lock:
+                    state = await self._get_detector_state()
+                    if state != "STANDBY":
+                        try:
+                            await asyncio.wait_for(
+                                self._wait_for_state("STANDBY"), timeout=5.0
+                            )
+                        except asyncio.TimeoutError as e:
+                            raise RuntimeError(
+                                "Cannot start acquisition: detector did not reach STANDBY within 5s"
+                            ) from e
+                    await self.num_processed.write(0)
+                    await self.acquisition_status.write(1)
+                    response: (
+                        dict[str, Any] | None
+                    ) = await self.tcp_client.send_command("ACTION", action="START")
                 if response:
                     logger.info("Acquisition started")
-                    await self.acquisition_status.write(1)
-                    await self.num_processed.write(0)
                 else:
                     logger.error("Failed to start acquisition")
+                    await self.acquisition_status.write(0)
                     return 0
             else:
                 # Check if acquisition finished naturally (state transitioned to STANDBY)
                 if self._natural_acquisition_finish:
                     # Clear the flag and skip sending STOP
                     self._natural_acquisition_finish = False
+                    await self.acquisition_status.write(0)
                     logger.info("Acquisition finished naturally, skipping STOP command")
                 else:
                     # Acquisition is being interrupted, send STOP command

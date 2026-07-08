@@ -170,6 +170,7 @@ class TestDeviceWithBluesky:
         device.file_path.set(str(test_output_dir)).wait(5.0)
         device.file_prefix.set("test_multi_trigger").wait(5.0)
         device.num_scans.set(1).wait(5.0)
+        device.frames.set(1000).wait(5.0)
 
         documents = []
         RE.subscribe(lambda name, doc: documents.append((name, doc)))
