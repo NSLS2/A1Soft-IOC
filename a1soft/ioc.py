@@ -1951,7 +1951,7 @@ class DetectorIOC(PVGroup):
                 else:
                     logger.error("Failed to start acquisition")
                     await self.acquisition_status.write(0)
-                    return 0
+                    raise RuntimeError("Failed to start acquisition.")
             else:
                 # Check if acquisition finished naturally (state transitioned to STANDBY)
                 if self._natural_acquisition_finish:
