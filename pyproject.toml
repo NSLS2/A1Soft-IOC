@@ -34,6 +34,7 @@ channels = ["conda-forge"]
 name = "EpicsServer"
 platforms = ["win-64", "linux-64"]
 version = "0.1.0"
+requires-pixi = ">=0.82.1"
 
 [tool.pixi.tasks]
 
